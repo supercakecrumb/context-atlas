@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+*.dump
+coverage/
+bin/
+web/node_modules/
+web/dist/
+web/playwright-report/
+web/test-results/
+data/
+graphify-out/

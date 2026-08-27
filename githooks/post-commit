@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Auto-notify Aurora on every commit, through the curly notifier.
+# Installed by scripts/pre-commit.sh via: git config core.hooksPath scripts/githooks
+repo_root="$(git rev-parse --show-toplevel)"
+repo_name="$(basename "$repo_root")"
+msg="$(git log -1 --pretty='%h %s')"
+
+# Prefer the repo's vendored copy; otherwise fall back to the machine-wide
+# curly-notify, so a repo that never vendored notify.sh still reports. Both read
+# the same ~/.config/curly/env. A missing notifier is not an error — a commit
+# must never fail because a notification couldn't be sent.
+if [ -x "$repo_root/scripts/notify.sh" ]; then
+  "$repo_root/scripts/notify.sh" "📦 ${repo_name}: ${msg}" || true
+elif command -v curly-notify >/dev/null 2>&1; then
+  curly-notify "📦 ${repo_name}: ${msg}" || true
+fi
+
+exit 0

@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v4
+        if: ${{ !env.ACT }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+        if: ${{ !env.ACT }}
+      - uses: docker/metadata-action@v6
+        if: ${{ !env.ACT }}
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      - uses: docker/build-push-action@v7
+        if: ${{ !env.ACT }}
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - name: Extract release notes
+        run: |
+          set -euo pipefail
+          awk -v ver="$GITHUB_REF_NAME" '
+            $0 ~ "^## " ver { found=1; next }
+            found && /^## / { found=0 }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          test -s release_notes.md
+      - name: Create GitHub Release
+        if: ${{ !env.ACT }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release_notes.md
+      - name: Preflight Dokploy application
+        if: ${{ !env.ACT }}
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_APP_ID: ${{ secrets.DOKPLOY_APP_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$DOKPLOY_APP_ID"
+          curl --fail-with-body -H "x-api-key: $DOKPLOY_API_TOKEN" \
+            "$DOKPLOY_URL/api/application.one?applicationId=$DOKPLOY_APP_ID" >/dev/null
+      - name: Deploy and verify
+        if: ${{ !env.ACT }}
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_TOKEN: ${{ secrets.DOKPLOY_API_TOKEN }}
+          DOKPLOY_APP_ID: ${{ secrets.DOKPLOY_APP_ID }}
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body -X POST -H "x-api-key: $DOKPLOY_API_TOKEN" -H "Content-Type: application/json" \
+            -d "{\"applicationId\":\"$DOKPLOY_APP_ID\"}" "$DOKPLOY_URL/api/application.deploy" >/dev/null
+          test -n "$HEALTH_URL"
+          for _ in $(seq 1 30); do
+            curl --fail --silent --show-error "$HEALTH_URL" && exit 0
+            sleep 10
+          done
+          exit 1

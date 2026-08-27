@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-context_atlas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-context_atlas}
+      POSTGRES_DB: ${POSTGRES_DB:-context_atlas}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-context_atlas} -d ${POSTGRES_DB:-context_atlas}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://context_atlas:context_atlas@db:5432/context_atlas?sslmode=disable}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: ${PORT:-8080}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      REFERENCE_DIR: ${REFERENCE_DIR:-/app/assets/reference}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      ADMIN_TG_IDS: ${ADMIN_TG_IDS:-}
+      SESSION_ENC_KEY: ${SESSION_ENC_KEY:-}
+      SNAGBOX_URL: ${SNAGBOX_URL:-}
+      SNAGBOX_INGEST_TOKEN: ${SNAGBOX_INGEST_TOKEN:-}
+      REFRESH_INTERVAL: ${REFRESH_INTERVAL:-24h}
+      REFRESH_HOUR_UTC: ${REFRESH_HOUR_UTC:-2}
+      REFRESH_MINUTE_UTC: ${REFRESH_MINUTE_UTC:-15}
+    ports:
+      - "${PORT:-8080}:8080"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
