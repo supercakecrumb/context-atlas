@@ -25,11 +25,9 @@ async function mockApi(page: Page) {
 test('gallery leads to a shareable explorer, accessible by keyboard', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Health data needs its context.' })).toBeVisible();
-  await page.getByRole('link', { name: 'Start exploring' }).click();
+  await expect(page.getByRole('heading', { name: 'Four compact views, backed by this snapshot' })).toBeVisible();
+  await page.getByRole('link', { name: /WHO EE6F72A.*Alcohol consumption/ }).click();
   await expect(page).toHaveURL(/\/explore/);
-  await page.getByRole('combobox', { name: 'Catalog snapshot' }).click();
-  await page.getByRole('option', { name: /Current · snapshot-1/ }).click();
   await expect(page).toHaveURL(/snapshot=snapshot-1/);
   await page.keyboard.press('Tab');
   await expect(page.locator(':focus')).toBeVisible();
