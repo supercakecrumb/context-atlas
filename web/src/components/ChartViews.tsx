@@ -7,15 +7,12 @@ import { DataTable, type DataTableSortStatus } from 'mantine-datatable';
 import type { AssociationResult, Group as M49Group, Observation, Series } from '../api/types';
 import { echarts } from '../echarts';
 import { ChartActions } from './ChartActions';
+import { formatNumber, PublishedValue } from './PublishedValue';
 
 const attribution = 'WHO data as published · Context Atlas · Natural Earth map geometry where shown';
 
 function exportAttribution(text = attribution) {
   return { type: 'text' as const, right: 10, bottom: 4, silent: true, style: { text, fill: '#617078', font: '11px sans-serif' } };
-}
-
-function formatNumber(value: number | null | undefined): string {
-  return value === null || value === undefined ? '—' : new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 }).format(value);
 }
 
 function chartTitle(title: string, unit?: string): string {
@@ -115,7 +112,7 @@ export function LineChartView({ observations, availableYears, seriesLabels = new
       <Text size="xs" c="dimmed">{attribution}</Text>
       <AccessibleChartTable compact={compact} caption={`${title}: accessible exact-year values`}>
         <Table.Thead><Table.Tr><Table.Th>Country or area</Table.Th>{seriesLabels.size > 0 && <Table.Th>Sex</Table.Th>}<Table.Th>Year</Table.Th><Table.Th>Display value</Table.Th><Table.Th>Lower bound</Table.Th><Table.Th>Upper bound</Table.Th></Table.Tr></Table.Thead>
-        <Table.Tbody>{publishedRows.map((row) => <Table.Tr key={`${row.series_id}-${row.source_geography.source_code}-${row.year}`}><Table.Td>{row.source_geography.name}</Table.Td>{seriesLabels.size > 0 && <Table.Td>{seriesLabels.get(row.series_id) ?? '—'}</Table.Td>}<Table.Td>{row.year}</Table.Td><Table.Td>{row.display_value}</Table.Td><Table.Td>{formatNumber(row.lower_bound)}</Table.Td><Table.Td>{formatNumber(row.upper_bound)}</Table.Td></Table.Tr>)}</Table.Tbody>
+        <Table.Tbody>{publishedRows.map((row) => <Table.Tr key={`${row.series_id}-${row.source_geography.source_code}-${row.year}`}><Table.Td>{row.source_geography.name}</Table.Td>{seriesLabels.size > 0 && <Table.Td>{seriesLabels.get(row.series_id) ?? '—'}</Table.Td>}<Table.Td>{row.year}</Table.Td><Table.Td><PublishedValue displayValue={row.display_value} numericValue={row.numeric_value} /></Table.Td><Table.Td>{formatNumber(row.lower_bound)}</Table.Td><Table.Td>{formatNumber(row.upper_bound)}</Table.Td></Table.Tr>)}</Table.Tbody>
       </AccessibleChartTable>
     </Stack>
   );
@@ -227,7 +224,7 @@ function MapAccessibleTable({ rows, title, compact }: { rows: MapTableRow[]; tit
           title: 'Value',
           sortable: true,
           textAlign: 'right',
-          render: (row) => row.numericValue === null ? 'No data' : row.displayValue,
+          render: (row) => <PublishedValue displayValue={row.displayValue} numericValue={row.numericValue} />,
         },
         {
           accessor: 'state',

@@ -1,10 +1,7 @@
 import { Box, Text } from '@mantine/core';
 import { DataTable } from 'mantine-datatable';
 import type { Observation } from '../api/types';
-
-function formatNumber(value: number | null | undefined): string {
-  return value === null || value === undefined ? '—' : new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 }).format(value);
-}
+import { formatNumber, PublishedValue } from './PublishedValue';
 
 export function ObservationTable({
   observations,
@@ -41,7 +38,7 @@ export function ObservationTable({
         columns={[
           { accessor: 'source_geography.name', title: 'Country or area' },
           { accessor: 'year', title: 'Year' },
-          { accessor: 'display_value', title: 'Display value' },
+          { accessor: 'display_value', title: 'Display value', render: ({ display_value, numeric_value }) => <PublishedValue displayValue={display_value} numericValue={numeric_value} /> },
           { accessor: 'numeric_value', title: 'Numeric value', render: ({ numeric_value }) => formatNumber(numeric_value) },
           { accessor: 'lower_bound', title: 'Lower bound', render: ({ lower_bound }) => formatNumber(lower_bound) },
           { accessor: 'upper_bound', title: 'Upper bound', render: ({ upper_bound }) => formatNumber(upper_bound) },

@@ -6,7 +6,7 @@ import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringEnum, useQu
 import { useEffect, useMemo, type ReactNode } from 'react';
 import { observationsCsvUrl, useAssociation, useCatalog, useChartObservations, useGeographies, useGroups, useMapGeometry, useObservations } from '../api/queries';
 import type { ObservationFilters } from '../api/queries';
-import type { ChartCapability, Group as M49Group, Measure, Series } from '../api/types';
+import type { ChartCapability, DimensionDefinition, Group as M49Group, Measure, Series } from '../api/types';
 import { EmptyState, QueryError, QueryLoading } from '../components/AsyncState';
 import { AssociationChartView, awareClass, CompositionChartView, isMapEligible, isPublishedNumeric, LineChartView, MapChartView } from '../components/ChartViews';
 import { ObservationTable } from '../components/ObservationTable';
@@ -26,45 +26,73 @@ function commonYears(series: Series[]): number[] {
 }
 function ControlLabel({ children }: { children: ReactNode }) { return <Text size="sm" fw={600} mb={4}>{children}</Text>; }
 
-type SeriesFamily = { label: string; representative: Series; series: Series[]; availableYears: number[] };
+type SeriesFamily = { label: string; representative: Series; series: Series[] };
 
-function isSexDimension(code: string): boolean { return code.replace(/^DIM_/, '') === 'SEX'; }
-function sexValue(series: Series): string | undefined { return Object.entries(series.dimensions).find(([code]) => isSexDimension(code))?.[1]; }
-function dimensionName(code: string): string {
-  const words = code.replace(/^DIM_/, '').toLowerCase().replaceAll('_', ' ');
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
 function buildSeriesFamilies(items: Series[], measures: Measure[]): SeriesFamily[] {
   const measureNames = new Map(measures.map((measure) => [measure.id, measure.name]));
   const grouped = new Map<string, Series[]>();
   items.forEach((series) => {
-    const dimensions = Object.entries(series.dimensions).filter(([code]) => !isSexDimension(code)).sort(([a], [b]) => a.localeCompare(b));
-    const key = JSON.stringify([series.dataset_id, series.measure_id, series.unit, series.statistic, series.value_kind, dimensions]);
+    const key = JSON.stringify([series.dataset_id, series.measure_id, series.unit, series.statistic, series.value_kind]);
     grouped.set(key, [...(grouped.get(key) ?? []), series]);
   });
   return [...grouped.values()].map((siblings) => {
     siblings.sort((a, b) => {
-      const order = (value?: string) => ({ TOTAL: 0, FEMALE: 1, MALE: 2 }[value ?? ''] ?? 3);
-      return order(sexValue(a)) - order(sexValue(b)) || a.name.localeCompare(b.name);
+      const nonTotalDimensions = (series: Series) => Object.values(series.dimensions).filter((value) => value !== 'TOTAL').length;
+      return nonTotalDimensions(a) - nonTotalDimensions(b) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
     });
     const representative = siblings[0];
-    const dimensions = Object.entries(representative.dimensions).filter(([code]) => !isSexDimension(code)).sort(([a], [b]) => a.localeCompare(b));
-    const suffix = dimensions.map(([code, value]) => `${dimensionName(code)}: ${value}`).join(', ');
     return {
-      label: `${measureNames.get(representative.measure_id) ?? representative.name.split(' · ')[0]}${suffix ? ` · ${suffix}` : ''}`,
+      label: measureNames.get(representative.measure_id) ?? representative.name.split(' · ')[0],
       representative,
       series: siblings,
-      availableYears: [...new Set(siblings.flatMap((series) => series.available_years))].sort((a, b) => a - b),
     };
   }).sort((a, b) => a.label.localeCompare(b.label));
 }
 function familyOptions(families: SeriesFamily[]) { return families.map((family) => ({ value: family.representative.id, label: family.label })); }
 function formatDimensionValue(value: string): string {
+  const range = /^Y(\d+)T(\d+)$/.exec(value);
+  if (range) return `${range[1]}–${range[2]}`;
+  const atLeast = /^Y_GE(\d+)$/.exec(value);
+  if (atLeast) return `${atLeast[1]}+`;
   const lower = value.toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
-function sliceOptions(family?: SeriesFamily) {
-  return (family?.series ?? []).map((series) => ({ value: series.id, label: sexValue(series) ? formatDimensionValue(sexValue(series)!) : series.name }));
+function familyDimensionCodes(family?: SeriesFamily): string[] {
+  if (!family) return [];
+  const codes = [...new Set(family.series.flatMap((series) => Object.keys(series.dimensions)))].sort();
+  return codes.filter((code) => new Set(family.series.map((series) => series.dimensions[code] ?? '')).size > 1);
+}
+function dimensionValueKey(value?: string): string { return JSON.stringify(value ?? null); }
+function dimensionValueFromKey(key: string): string | undefined {
+  const value: unknown = JSON.parse(key);
+  return typeof value === 'string' ? value : undefined;
+}
+function dimensionOptions(family: SeriesFamily, code: string) {
+  const values = [...new Set(family.series.map((series) => series.dimensions[code]))];
+  return values.sort((a, b) => Number(b === 'TOTAL') - Number(a === 'TOTAL') || (a ?? '').localeCompare(b ?? '')).map((value) => ({ value: dimensionValueKey(value), label: value ? formatDimensionValue(value) : 'Not specified' }));
+}
+export function seriesWithDimension(seriesItems: Series[], selected: Series, code: string, value?: string): Series | undefined {
+  const target = { ...selected.dimensions, [code]: value };
+  const codes = [...new Set(seriesItems.flatMap((series) => Object.keys(series.dimensions)))];
+  const exact = seriesItems.find((series) => codes.every((candidate) => series.dimensions[candidate] === target[candidate]));
+  if (exact) return exact;
+  const matching = seriesItems.filter((series) => series.dimensions[code] === value);
+  return matching.sort((a, b) => {
+    const sameDimensions = (series: Series) => codes.filter((candidate) => candidate !== code && series.dimensions[candidate] === selected.dimensions[candidate]).length;
+    const totalDimensions = (series: Series) => Object.values(series.dimensions).filter((candidate) => candidate === 'TOTAL').length;
+    return sameDimensions(b) - sameDimensions(a) || totalDimensions(b) - totalDimensions(a) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+  })[0];
+}
+function DimensionControls({ family, series, definitions, prefix = '', onChange }: { family?: SeriesFamily; series?: Series; definitions: DimensionDefinition[]; prefix?: string; onChange: (series: Series) => void }) {
+  if (!family || !series) return null;
+  const names = new Map(definitions.map((definition) => [definition.code, definition.name]));
+  return <>{familyDimensionCodes(family).map((code) => {
+    const label = `${prefix}${names.get(code) ?? code.replace(/^DIM_/, '')}`;
+    return <Select key={code} label={label} value={dimensionValueKey(series.dimensions[code])} onChange={(value) => {
+      const next = value ? seriesWithDimension(family.series, series, code, dimensionValueFromKey(value)) : undefined;
+      if (next) onChange(next);
+    }} data={dimensionOptions(family, code)} />;
+  })}</>;
 }
 
 export function ExplorePage() {
@@ -131,7 +159,7 @@ export function ExplorePage() {
   const activeSeries = allSeries.filter((series) => view === 'table' || currentDatasetSupports(series, view));
   const compositionSeries = selectedDataset?.capabilities.includes('composition') ? allSeries.filter((series) => series.dataset_id === selectedDataset.id && awareClass(series) !== 'Other') : [];
   const compositionYears = useMemo(() => commonYears(compositionSeries), [compositionSeries]);
-  const lineObservations = useChartObservations({ ...baseFilters, series: selectedLineFamily?.series.map((series) => series.id) }, view === 'line' && Boolean(selectedLineFamily && geographyIDs.length) && !tooManyLineGeographies);
+  const lineObservations = useChartObservations({ ...baseFilters, series: selectedSeries ? [selectedSeries.id] : undefined }, view === 'line' && Boolean(selectedSeries && geographyIDs.length) && !tooManyLineGeographies);
   const mapObservations = useChartObservations({ ...baseFilters, series: selectedSeries ? [selectedSeries.id] : undefined, years: year ? [year] : undefined }, view === 'map' && Boolean(selectedSeries && year));
   const tablePageSize = ([25, 50, 100].includes(pageSize) ? pageSize : 25) as 25 | 50 | 100;
   const tableObservations = useObservations({ ...baseFilters, series: selectedSeries ? [selectedSeries.id] : undefined, years: year ? [year] : undefined, page, page_size: tablePageSize }, view === 'table' && Boolean(selectedSeries));
@@ -189,17 +217,17 @@ export function ExplorePage() {
       <div className="explore-grid"><Stack className="control-panel" gap="md">
         {view !== 'association' && view !== 'composition' && <div><ControlLabel>Indicator</ControlLabel><Select searchable clearable value={(view === 'line' ? selectedLineFamily : selectedExactFamily)?.representative.id ?? null} onChange={selectFamily} placeholder="Choose an indicator" data={familyOptions(view === 'line' ? lineFamilies : exactFamilies)} /></div>}
         {view === 'composition' && <div><ControlLabel>AWaRe series</ControlLabel><Select searchable clearable value={seriesID} onChange={selectSeries} placeholder="Choose a published series" data={seriesOptions(activeSeries)} /></div>}
-        {view !== 'line' && view !== 'association' && view !== 'composition' && selectedExactFamily && selectedExactFamily.series.length > 1 && <div><ControlLabel>Sex</ControlLabel><Select value={selectedSeries?.id ?? null} onChange={(value) => value && setSeriesID(value)} data={sliceOptions(selectedExactFamily)} /></div>}
-        {view === 'association' && <Stack gap="sm"><div><ControlLabel>X indicator</ControlLabel><Select searchable clearable value={selectedXFamily?.representative.id ?? null} onChange={(value) => selectAssociationFamily('x', value)} data={familyOptions(associationFamilies)} placeholder="Choose X indicator" /></div>{selectedXFamily && selectedXFamily.series.length > 1 && <div><ControlLabel>X sex</ControlLabel><Select value={selectedX?.id ?? null} onChange={(value) => value && setXSeriesID(value)} data={sliceOptions(selectedXFamily)} /></div>}<div><ControlLabel>X exact year</ControlLabel><Select clearable disabled={!selectedX} value={xYear ? String(xYear) : null} onChange={(value) => setXYear(value ? Number(value) : null)} data={yearsFor(selectedX)} placeholder="Choose X year" />{invalidYear(selectedX, xYear) && <Text c="red" size="xs" mt={4}>This year is unavailable and has not been substituted.</Text>}</div><Divider /><div><ControlLabel>Y indicator</ControlLabel><Select searchable clearable value={selectedYFamily?.representative.id ?? null} onChange={(value) => selectAssociationFamily('y', value)} data={familyOptions(associationFamilies)} placeholder="Choose Y indicator" /></div>{selectedYFamily && selectedYFamily.series.length > 1 && <div><ControlLabel>Y sex</ControlLabel><Select value={selectedY?.id ?? null} onChange={(value) => value && setYSeriesID(value)} data={sliceOptions(selectedYFamily)} /></div>}<div><ControlLabel>Y exact year</ControlLabel><Select clearable disabled={!selectedY} value={yYear ? String(yYear) : null} onChange={(value) => setYYear(value ? Number(value) : null)} data={yearsFor(selectedY)} placeholder="Choose Y year" />{invalidYear(selectedY, yYear) && <Text c="red" size="xs" mt={4}>This year is unavailable and has not been substituted.</Text>}</div></Stack>}
+        {view !== 'association' && view !== 'composition' && <DimensionControls family={view === 'line' ? selectedLineFamily : selectedExactFamily} series={selectedSeries} definitions={catalog.data?.dimensions ?? []} onChange={(next) => setSeriesID(next.id)} />}
+        {view === 'association' && <Stack gap="sm"><div><ControlLabel>X indicator</ControlLabel><Select searchable clearable value={selectedXFamily?.representative.id ?? null} onChange={(value) => selectAssociationFamily('x', value)} data={familyOptions(associationFamilies)} placeholder="Choose X indicator" /></div><DimensionControls family={selectedXFamily} series={selectedX} definitions={catalog.data?.dimensions ?? []} prefix="X " onChange={(next) => setXSeriesID(next.id)} /><div><ControlLabel>X exact year</ControlLabel><Select clearable disabled={!selectedX} value={xYear ? String(xYear) : null} onChange={(value) => setXYear(value ? Number(value) : null)} data={yearsFor(selectedX)} placeholder="Choose X year" />{invalidYear(selectedX, xYear) && <Text c="red" size="xs" mt={4}>This year is unavailable and has not been substituted.</Text>}</div><Divider /><div><ControlLabel>Y indicator</ControlLabel><Select searchable clearable value={selectedYFamily?.representative.id ?? null} onChange={(value) => selectAssociationFamily('y', value)} data={familyOptions(associationFamilies)} placeholder="Choose Y indicator" /></div><DimensionControls family={selectedYFamily} series={selectedY} definitions={catalog.data?.dimensions ?? []} prefix="Y " onChange={(next) => setYSeriesID(next.id)} /><div><ControlLabel>Y exact year</ControlLabel><Select clearable disabled={!selectedY} value={yYear ? String(yYear) : null} onChange={(value) => setYYear(value ? Number(value) : null)} data={yearsFor(selectedY)} placeholder="Choose Y year" />{invalidYear(selectedY, yYear) && <Text c="red" size="xs" mt={4}>This year is unavailable and has not been substituted.</Text>}</div></Stack>}
         {view !== 'line' && view !== 'association' && <div><ControlLabel>Exact year</ControlLabel><Select clearable value={year ? String(year) : null} onChange={(value) => setYear(value ? Number(value) : null)} placeholder="Choose an exact year" disabled={!selectedSeries} data={view === 'composition' ? compositionYears.map((value) => ({ value: String(value), label: String(value) })) : yearsFor(selectedSeries)} />{(view === 'composition' ? Boolean(year && !compositionYears.includes(year)) : invalidYear(selectedSeries, year)) && <Text c="red" size="xs" mt={4}>This exact year is unavailable. Choose another; it will not be replaced.</Text>}</div>}
         {view !== 'map' && <><Divider />
           <div><ControlLabel>Group filters</ControlLabel><MultiSelect searchable clearable value={groupIDs} onChange={setGroupIDs} placeholder="All countries and areas" data={(groups.data?.groups ?? []).map((group) => ({ value: group.id, label: group.name }))} /></div>
           <div><ControlLabel>Countries and areas{view === 'line' ? ' (up to 12)' : ''}</ControlLabel><MultiSelect searchable clearable maxValues={view === 'line' ? 12 : undefined} value={geographyIDs} onChange={(value) => { setGeographyIDs(value); setPage(1); }} placeholder="All matching source geographies" data={geographyOptions} /></div>
         </>}
-        {view !== 'association' && (selectedSeries || selectedLineFamily) && <Button component="a" variant="subtle" color="dark" leftSection={<Download size={15} aria-hidden />} href={observationsCsvUrl({ ...baseFilters, series: view === 'line' ? selectedLineFamily?.series.map((series) => series.id) : selectedSeries ? [selectedSeries.id] : undefined, years: view === 'line' ? undefined : year ? [year] : undefined })}>Download filtered CSV</Button>}
+        {view !== 'association' && selectedSeries && <Button component="a" variant="subtle" color="dark" leftSection={<Download size={15} aria-hidden />} href={observationsCsvUrl({ ...baseFilters, series: [selectedSeries.id], years: view === 'line' ? undefined : year ? [year] : undefined })}>Download filtered CSV</Button>}
         {view !== 'map' && <Text className="data-note">Groups narrow country selections. Regional aggregates require matching denominator data and are not inferred.</Text>}
       </Stack><Box className="chart-surface">
-        {view === 'line' && <LinePanel family={selectedLineFamily} query={lineObservations} tooManyGeographies={tooManyLineGeographies} />}
+        {view === 'line' && <LinePanel series={selectedSeries} query={lineObservations} tooManyGeographies={tooManyLineGeographies} />}
         {view === 'map' && <MapPanel series={selectedSeries} year={year} query={mapObservations} geometry={mapGeometry} iso2ByM49={iso2ByM49} />}
         {view === 'association' && <AssociationPanel xSeries={selectedX} ySeries={selectedY} xYear={xYear} yYear={yYear} query={association} groups={groups.data?.groups} />}
         {view === 'composition' && <CompositionPanel series={selectedSeries} year={year} query={compositionObservations} seriesByID={seriesByID} />}
@@ -211,18 +239,14 @@ export function ExplorePage() {
   </Stack></Container>;
 }
 
-function LinePanel({ family, query, tooManyGeographies }: { family?: SeriesFamily; query: ReturnType<typeof useChartObservations>; tooManyGeographies: boolean }) {
-  if (!family) return <EmptyState title="Choose an indicator.">Sex variants are shown together when the source publishes them.</EmptyState>;
+function LinePanel({ series, query, tooManyGeographies }: { series?: Series; query: ReturnType<typeof useChartObservations>; tooManyGeographies: boolean }) {
+  if (!series) return <EmptyState title="Choose an indicator." />;
   if (tooManyGeographies) return <EmptyState title="Choose no more than 12 countries or areas.">Line charts never silently trim an over-limit shared selection.</EmptyState>;
   if (!query.isFetching && !query.data && query.fetchStatus === 'idle') return <EmptyState title="Choose 1–12 countries or areas for this line chart.">The atlas will not silently choose countries or render an unbounded set of lines.</EmptyState>;
   if (query.isPending) return <QueryLoading />;
   if (query.isError) return <QueryError error={query.error} />;
   if (!query.data?.observations.some(isPublishedNumeric)) return <EmptyState title="No published numeric rows match this selection." />;
-  const seriesLabels = new Map(family.series.flatMap((series) => {
-    const sex = sexValue(series);
-    return sex ? [[series.id, formatDimensionValue(sex)] as const] : [];
-  }));
-  return <><LineChartView observations={query.data.observations} availableYears={family.availableYears} seriesLabels={seriesLabels} title={family.label} unit={family.representative.unit} /><Provenance snapshot={query.data.meta.snapshot} releases={query.data.meta.releases} /></>;
+  return <><LineChartView observations={query.data.observations} availableYears={series.available_years} title={series.name} unit={series.unit} /><Provenance snapshot={query.data.meta.snapshot} releases={query.data.meta.releases} /></>;
 }
 
 function MapPanel({ series, year, query, geometry, iso2ByM49 }: { series?: Series; year: number | null; query: ReturnType<typeof useChartObservations>; geometry: ReturnType<typeof useMapGeometry>; iso2ByM49: Map<string, string> }) {
