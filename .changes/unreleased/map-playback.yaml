@@ -1,0 +1,3 @@
+kind: Added
+body: Map playback advances through exact calendar years with Play and Pause, preloads the next frame, preserves missing years and stops at the end or when the selection changes.
+time: 2026-09-05T02:40:04+03:00

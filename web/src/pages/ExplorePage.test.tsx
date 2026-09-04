@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
@@ -34,6 +34,65 @@ describe('exact-year explorer', () => {
     await waitFor(() => expect(window.location.search).toContain('year=2001'));
     expect(screen.queryByText('Group filters')).not.toBeInTheDocument();
     expect(screen.queryByText(/Countries and areas/)).not.toBeInTheDocument();
+  });
+
+  it('plays exact calendar years, waits for data, pauses, and stops at the end or on leaving the map', async () => {
+    const user = userEvent.setup();
+    let releaseNextYear!: () => void;
+    const nextYearReady = new Promise<void>((resolve) => { releaseNextYear = resolve; });
+    const requestedYears: string[] = [];
+    server.use(
+      http.get('/api/v1/catalog', () => HttpResponse.json({ ...catalog, series: catalog.series.map((series) => ({ ...series, available_years: [2000, 2002] })) })),
+      http.get('/api/v1/observations', async ({ request }) => {
+        const year = new URL(request.url).searchParams.get('years') ?? '';
+        requestedYears.push(year);
+        if (year === '2001') await nextYearReady;
+        const rows = year === '2001' ? [] : observations.observations.map((row) => ({ ...row, year: Number(year) }));
+        return HttpResponse.json({ ...observations, observations: rows, pagination: { ...observations.pagination, total: rows.length } });
+      }),
+    );
+    renderApp('/explore?snapshot=snapshot-2026-08-27&view=map&series=alcohol-total&year=2002');
+    await screen.findByRole('heading', { name: /Alcohol.*2002/i });
+    await user.click(screen.getByRole('button', { name: 'Play years' }));
+    await screen.findByRole('heading', { name: /Alcohol.*2000/i });
+    await waitFor(() => expect(requestedYears).toContain('2001'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_100)); });
+    expect(screen.getByRole('combobox', { name: 'Exact year' })).toHaveValue('2000');
+
+    await user.click(screen.getByRole('button', { name: 'Pause' }));
+    releaseNextYear();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_100)); });
+    expect(window.location.search).toContain('year=2000');
+    await user.click(screen.getByRole('button', { name: 'Play years' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Exact year' })).toHaveValue('2001'), { timeout: 2_500 });
+    expect(screen.getByText('No published mapped rows match this exact year.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('combobox', { name: 'Exact year' }));
+    await user.keyboard('{ArrowUp}{Enter}');
+    expect(screen.getByRole('combobox', { name: 'Exact year' })).toHaveValue('2000');
+    expect(screen.getByRole('button', { name: 'Play years' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Play years' }));
+    await waitFor(() => expect(window.location.search).toContain('year=2002'), { timeout: 4_000 });
+    expect(screen.getByRole('button', { name: 'Play years' })).toBeInTheDocument();
+    expect(window.location.search).toContain('snapshot=snapshot-2026-08-27');
+
+    await user.click(screen.getByRole('button', { name: 'Play years' }));
+    await waitFor(() => expect(window.location.search).toContain('year=2000'));
+    await user.click(screen.getByRole('tab', { name: 'Table' }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_100)); });
+    expect(window.location.search).toContain('year=2000');
+    expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
+  }, 15_000);
+
+  it('stops playback and keeps the current map when the next year fails to load', async () => {
+    const user = userEvent.setup();
+    server.use(http.get('/api/v1/observations', ({ request }) => new URL(request.url).searchParams.get('years') === '2001'
+      ? new HttpResponse(null, { status: 503 }) : HttpResponse.json(observations)));
+    renderApp('/explore?snapshot=snapshot-2026-08-27&view=map&series=alcohol-total&year=2000');
+    await user.click(await screen.findByRole('button', { name: 'Play years' }));
+    expect(await screen.findByText('Playback stopped: the next year could not be loaded.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Play years' })).toBeInTheDocument();
+    expect(window.location.search).toContain('year=2000');
   });
 
   it('defaults line charts to the total tuple and exposes dimension controls', async () => {

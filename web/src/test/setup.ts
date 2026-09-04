@@ -24,6 +24,7 @@ class ResizeObserverMock {
 }
 
 vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+Element.prototype.scrollIntoView = vi.fn();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => { cleanup(); server.resetHandlers(); window.history.replaceState({}, '', '/'); });

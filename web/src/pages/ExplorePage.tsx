@@ -1,9 +1,9 @@
 import {
   Alert, Anchor, Box, Button, Container, Divider, Group, MultiSelect, Select, SimpleGrid, Stack, Tabs, Text, Title,
 } from '@mantine/core';
-import { Download, Info } from 'lucide-react';
+import { Download, Info, Pause, Play } from 'lucide-react';
 import { parseAsArrayOf, parseAsInteger, parseAsString, parseAsStringEnum, useQueryState } from 'nuqs';
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { observationsCsvUrl, useAssociation, useCatalog, useChartObservations, useGeographies, useGroups, useMapGeometry, useObservations } from '../api/queries';
 import type { ObservationFilters } from '../api/queries';
 import type { ChartCapability, DimensionDefinition, Group as M49Group, Measure, Series } from '../api/types';
@@ -108,6 +108,7 @@ export function ExplorePage() {
   const [groupIDs, setGroupIDs] = useQueryState('groups', parseAsArrayOf(parseAsString).withDefault([]));
   const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
   const [pageSize, setPageSize] = useQueryState('page_size', parseAsInteger.withDefault(25));
+  const [playingYears, setPlayingYears] = useState(false);
 
   const catalog = useCatalog(snapshot ?? undefined);
   const geographies = useGeographies(snapshot ?? undefined);
@@ -165,7 +166,24 @@ export function ExplorePage() {
   const tableObservations = useObservations({ ...baseFilters, series: selectedSeries ? [selectedSeries.id] : undefined, years: year ? [year] : undefined, page, page_size: tablePageSize }, view === 'table' && Boolean(selectedSeries));
   const compositionObservations = useChartObservations({ ...baseFilters, series: compositionSeries.map((series) => series.id), years: year ? [year] : undefined }, view === 'composition' && compositionSeries.length > 0 && Boolean(year));
   const mapGeometry = useMapGeometry(snapshot ?? undefined, view === 'map' && Boolean(selectedSeries && year));
+  const firstMapYear = selectedSeries?.available_years.length ? Math.min(...selectedSeries.available_years) : null;
+  const lastMapYear = latestYear(selectedSeries);
+  const nextMapYear = year !== null && lastMapYear !== null && year < lastMapYear ? year + 1 : null;
+  // Load one frame ahead so advancing keeps the map mounted and preserves its zoom.
+  const nextMapObservations = useChartObservations({ ...baseFilters, series: selectedSeries ? [selectedSeries.id] : undefined, years: nextMapYear !== null ? [nextMapYear] : undefined }, playingYears && view === 'map' && nextMapYear !== null);
   const association = useAssociation(selectedX && selectedY && xYear && yYear ? { ...baseFilters, x_series: selectedX.id, x_year: xYear, y_series: selectedY.id, y_year: yYear } : undefined);
+
+  useEffect(() => { setPlayingYears(false); }, [view, seriesID, snapshot]);
+  useEffect(() => {
+    if (!playingYears || view !== 'map') return;
+    if (nextMapYear === null || mapObservations.isError || mapGeometry.isError || nextMapObservations.isError) {
+      setPlayingYears(false);
+      return;
+    }
+    if (!mapObservations.isSuccess || !mapGeometry.isSuccess || !nextMapObservations.isSuccess) return;
+    const timer = window.setTimeout(() => { void setYear(nextMapYear, { history: 'replace' }); }, 1_000);
+    return () => window.clearTimeout(timer);
+  }, [playingYears, view, nextMapYear, mapObservations.isError, mapObservations.isSuccess, mapGeometry.isError, mapGeometry.isSuccess, nextMapObservations.isError, nextMapObservations.isSuccess, setYear]);
 
   useEffect(() => {
     if (!snapshot && catalog.data?.meta.snapshot.id) {
@@ -219,7 +237,15 @@ export function ExplorePage() {
         {view === 'composition' && <div><ControlLabel>AWaRe series</ControlLabel><Select searchable clearable value={seriesID} onChange={selectSeries} placeholder="Choose a published series" data={seriesOptions(activeSeries)} /></div>}
         {view !== 'association' && view !== 'composition' && <DimensionControls family={view === 'line' ? selectedLineFamily : selectedExactFamily} series={selectedSeries} definitions={catalog.data?.dimensions ?? []} onChange={(next) => setSeriesID(next.id)} />}
         {view === 'association' && <Stack gap="sm"><div><ControlLabel>X indicator</ControlLabel><Select searchable clearable value={selectedXFamily?.representative.id ?? null} onChange={(value) => selectAssociationFamily('x', value)} data={familyOptions(associationFamilies)} placeholder="Choose X indicator" /></div><DimensionControls family={selectedXFamily} series={selectedX} definitions={catalog.data?.dimensions ?? []} prefix="X " onChange={(next) => setXSeriesID(next.id)} /><div><ControlLabel>X exact year</ControlLabel><Select clearable disabled={!selectedX} value={xYear ? String(xYear) : null} onChange={(value) => setXYear(value ? Number(value) : null)} data={yearsFor(selectedX)} placeholder="Choose X year" />{invalidYear(selectedX, xYear) && <Text c="red" size="xs" mt={4}>This year is unavailable and has not been substituted.</Text>}</div><Divider /><div><ControlLabel>Y indicator</ControlLabel><Select searchable clearable value={selectedYFamily?.representative.id ?? null} onChange={(value) => selectAssociationFamily('y', value)} data={familyOptions(associationFamilies)} placeholder="Choose Y indicator" /></div><DimensionControls family={selectedYFamily} series={selectedY} definitions={catalog.data?.dimensions ?? []} prefix="Y " onChange={(next) => setYSeriesID(next.id)} /><div><ControlLabel>Y exact year</ControlLabel><Select clearable disabled={!selectedY} value={yYear ? String(yYear) : null} onChange={(value) => setYYear(value ? Number(value) : null)} data={yearsFor(selectedY)} placeholder="Choose Y year" />{invalidYear(selectedY, yYear) && <Text c="red" size="xs" mt={4}>This year is unavailable and has not been substituted.</Text>}</div></Stack>}
-        {view !== 'line' && view !== 'association' && <div><ControlLabel>Exact year</ControlLabel><Select clearable value={year ? String(year) : null} onChange={(value) => setYear(value ? Number(value) : null)} placeholder="Choose an exact year" disabled={!selectedSeries} data={view === 'composition' ? compositionYears.map((value) => ({ value: String(value), label: String(value) })) : yearsFor(selectedSeries)} />{(view === 'composition' ? Boolean(year && !compositionYears.includes(year)) : invalidYear(selectedSeries, year)) && <Text c="red" size="xs" mt={4}>This exact year is unavailable. Choose another; it will not be replaced.</Text>}</div>}
+        {view !== 'line' && view !== 'association' && <div><Select label="Exact year" clearable value={year ? String(year) : null} onChange={(value) => { setPlayingYears(false); void setYear(value ? Number(value) : null); }} placeholder="Choose an exact year" disabled={!selectedSeries} data={view === 'composition' ? compositionYears.map((value) => ({ value: String(value), label: String(value) })) : [...(invalidYear(selectedSeries, year) ? [{ value: String(year), label: String(year) }] : []), ...yearsFor(selectedSeries)]} />{(view === 'composition' ? Boolean(year && !compositionYears.includes(year)) : invalidYear(selectedSeries, year)) && <Text c="red" size="xs" mt={4}>This exact year is unavailable. Choose another; it will not be replaced.</Text>}</div>}
+        {view === 'map' && <Stack gap="xs">
+          <Button leftSection={playingYears ? <Pause size={16} aria-hidden /> : <Play size={16} aria-hidden />} disabled={firstMapYear === null || lastMapYear === null || firstMapYear === lastMapYear} onClick={() => {
+            if (!playingYears && firstMapYear !== null && lastMapYear !== null && (year === null || year < firstMapYear || year >= lastMapYear)) void setYear(firstMapYear, { history: 'replace' });
+            setPlayingYears(!playingYears);
+          }}>{playingYears ? 'Pause' : 'Play years'}</Button>
+          <Text size="xs" c="dimmed">One year per second, once loaded. Missing years stay empty. At the end, Play starts again.</Text>
+          {nextMapObservations.isError && <Text size="xs" c="red">Playback stopped: the next year could not be loaded.</Text>}
+        </Stack>}
         {view !== 'map' && <><Divider />
           <div><ControlLabel>Group filters</ControlLabel><MultiSelect searchable clearable value={groupIDs} onChange={setGroupIDs} placeholder="All countries and areas" data={(groups.data?.groups ?? []).map((group) => ({ value: group.id, label: group.name }))} /></div>
           <div><ControlLabel>Countries and areas{view === 'line' ? ' (up to 12)' : ''}</ControlLabel><MultiSelect searchable clearable maxValues={view === 'line' ? 12 : undefined} value={geographyIDs} onChange={(value) => { setGeographyIDs(value); setPage(1); }} placeholder="All matching source geographies" data={geographyOptions} /></div>
