@@ -44,6 +44,9 @@ export function ObservationTable({
           { accessor: 'upper_bound', title: 'Upper bound', render: ({ upper_bound }) => formatNumber(upper_bound) },
           { accessor: 'status', title: 'Value status' },
           { accessor: 'publish_state', title: 'Publish state' },
+          { accessor: 'source_geography.source_system', title: 'Provider' },
+          { accessor: 'source_status', title: 'Source flag' },
+          { accessor: 'source_note', title: 'Source note' },
         ]}
       />
     </Box>

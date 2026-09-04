@@ -34,7 +34,7 @@ func TestExpirePreviewsClearsOverduePreviewArtifacts(t *testing.T) {
 	var overdueRaw []byte
 	var overdueFinished bool
 	if err := service.pool.QueryRow(ctx, `
-		SELECT state, staged_raw_csv, finished_at IS NOT NULL
+		SELECT state, staged_raw_artifact, finished_at IS NOT NULL
 		FROM import_job WHERE id = $1`, overdueID).Scan(&overdueState, &overdueRaw, &overdueFinished); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestExpirePreviewsClearsOverduePreviewArtifacts(t *testing.T) {
 	var freshStored []byte
 	var freshFinished bool
 	if err := service.pool.QueryRow(ctx, `
-		SELECT state, staged_raw_csv, finished_at IS NOT NULL
+		SELECT state, staged_raw_artifact, finished_at IS NOT NULL
 		FROM import_job WHERE id = $1`, freshID).Scan(&freshState, &freshStored, &freshFinished); err != nil {
 		t.Fatal(err)
 	}

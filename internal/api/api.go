@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/supercakecrumb/context-atlas/internal/who"
+	"github.com/supercakecrumb/context-atlas/internal/worldbank"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -73,7 +74,7 @@ func New(opts Options) *Server {
 	config.DocsPath = "/api/docs"
 	config.SchemasPath = "/api/v1/schemas"
 	config.RejectUnknownQueryParameters = true
-	config.Info.Description = "Public exact-year WHO data exploration and owner-only import administration."
+	config.Info.Description = "Public exact-year WHO and World Bank data exploration and owner-only import administration."
 	config.Info.License = &huma.License{Name: "MIT", Identifier: "MIT"}
 
 	humaAPI := humago.New(mux, config)
@@ -219,7 +220,7 @@ func (s *Server) registerPublic() {
 	}
 	huma.Register(s.api, publicRead(huma.Operation{
 		OperationID: "list-geographies", Method: http.MethodGet, Path: GeographiesPath,
-		Summary:   "Search WHO source and canonical M49 geographies",
+		Summary:   "Search original source and canonical M49 geographies",
 		Responses: etagResponses(), Errors: []int{http.StatusNotFound, http.StatusServiceUnavailable},
 	}), func(ctx context.Context, in *geographiesInput) (*geographyOutput, error) {
 		if s.opts.Geographies == nil {
@@ -500,11 +501,11 @@ func (s *Server) registerAdmin() {
 	type previewOutput struct{ Body ImportPreview }
 	huma.Register(s.api, admin(huma.Operation{
 		OperationID: "create-import-preview", Method: http.MethodPost, Path: AdminPreviewsPath,
-		Summary: "Stage and inspect a WHO indicator import", DefaultStatus: http.StatusAccepted,
+		Summary: "Stage and inspect a supported WHO or World Bank indicator import", DefaultStatus: http.StatusAccepted,
 		MaxBodyBytes: 8 << 10,
 		Errors:       []int{http.StatusBadRequest, http.StatusForbidden, http.StatusConflict, http.StatusServiceUnavailable},
 	}), func(ctx context.Context, in *previewCreateInput) (*previewOutput, error) {
-		if err := validateWHOIndicatorURL(in.Body.URL); err != nil {
+		if err := validateIndicatorURL(in.Body.URL); err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		if s.opts.Imports == nil {
@@ -556,7 +557,7 @@ func (s *Server) registerAdmin() {
 
 	huma.Register(s.api, admin(huma.Operation{
 		OperationID: "refresh-catalog", Method: http.MethodPost, Path: AdminRefreshPath,
-		Summary: "Start the owner-requested WHO catalog refresh", DefaultStatus: http.StatusAccepted,
+		Summary: "Start the owner-requested catalog refresh", DefaultStatus: http.StatusAccepted,
 		Errors: []int{http.StatusForbidden, http.StatusConflict, http.StatusServiceUnavailable},
 	}), func(ctx context.Context, _ *struct{}) (*runOutput, error) {
 		if s.opts.Imports == nil {
@@ -687,7 +688,10 @@ func validateYears(years []int) error {
 	return nil
 }
 
-func validateWHOIndicatorURL(raw string) error {
+func validateIndicatorURL(raw string) error {
+	if _, ok := worldbank.DefinitionForURL(raw); ok {
+		return nil
+	}
 	_, err := who.ValidateIndicatorPageURL(raw)
 	return err
 }

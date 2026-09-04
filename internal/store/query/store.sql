@@ -1,5 +1,5 @@
 -- name: InsertDataset :one
-INSERT INTO dataset (id, who_indicator_id, who_measure_code, title, source_url, definition)
+INSERT INTO dataset (id, indicator_id, indicator_code, title, source_url, definition)
 VALUES ($1, $2, $3, $4, $5, sqlc.arg(definition)::jsonb)
 RETURNING *;
 
@@ -33,7 +33,7 @@ LIMIT 1;
 
 -- name: InsertDatasetRelease :one
 INSERT INTO dataset_release (
-    dataset_id, source_url, citation, accessed_at, raw_csv, sha256, response_metadata, csv_headers,
+    dataset_id, source_url, citation, accessed_at, raw_artifact, sha256, response_metadata, source_fields,
     schema_fingerprint, parser_version, source_row_count, imported_row_count,
     duplicate_row_count, rejected_row_count, diagnostics
 ) VALUES (
@@ -78,7 +78,7 @@ UPDATE import_job
 SET release_id = $2,
     state = $3,
     discovered_url = $4,
-    staged_raw_csv = $5,
+    staged_raw_artifact = $5,
     preview = $6,
     error_message = $7,
     started_at = $8,
@@ -129,7 +129,7 @@ WHERE csr.snapshot_id = $1
 ORDER BY csr.dataset_id;
 
 -- name: ListCatalogDatasets :many
-SELECT d.id AS dataset_id, d.who_indicator_id, d.who_measure_code, d.title,
+SELECT d.id AS dataset_id, d.indicator_id, d.indicator_code, d.title,
        r.id AS release_id, r.accessed_at, r.source_url, r.citation
 FROM catalog_snapshot_release csr
 JOIN dataset d ON d.id = csr.dataset_id

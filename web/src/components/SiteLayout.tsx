@@ -1,11 +1,12 @@
 import { AppShell, Burger, Container, Drawer, Group, Stack } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { BookOpenText, Database, Info } from 'lucide-react';
+import { BookOpenText, Database, Globe2, Info } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router';
 import { FeedbackButton } from './FeedbackButton';
 
 const navigation = [
   { to: '/', label: 'Atlas', icon: BookOpenText, end: true },
+  { to: '/countries', label: 'Countries', icon: Globe2 },
   { to: '/explore', label: 'Explore', icon: Database },
   { to: '/data', label: 'Data', icon: Database },
   { to: '/about', label: 'About', icon: Info },

@@ -200,7 +200,7 @@ func seedRelease(t *testing.T, store *Store, ctx context.Context, suffix string)
 	datasetID := "dataset-" + suffix
 	measureCode := "measure-" + suffix
 	if _, err := store.Pool().Exec(ctx, `
-		INSERT INTO dataset (id, who_indicator_id, who_measure_code, title, source_url)
+		INSERT INTO dataset (id, indicator_id, indicator_code, title, source_url)
 		VALUES ($1, $2, $3, $4, $5)`,
 		datasetID, "indicator-"+suffix, measureCode, "Dataset "+suffix, "https://data.who.int/"+suffix,
 	); err != nil {
@@ -215,8 +215,8 @@ func seedRelease(t *testing.T, store *Store, ctx context.Context, suffix string)
 	var releaseID int64
 	err := store.Pool().QueryRow(ctx, `
 		INSERT INTO dataset_release (
-			dataset_id, source_url, citation, accessed_at, raw_csv, sha256,
-			response_metadata, csv_headers, schema_fingerprint, parser_version,
+			dataset_id, source_url, citation, accessed_at, raw_artifact, sha256,
+			response_metadata, source_fields, schema_fingerprint, parser_version,
 			source_row_count, imported_row_count, duplicate_row_count, rejected_row_count, diagnostics
 		) VALUES (
 			$1, $2, $3, now(), $4, $5, $6, $7, $8, $9, 2, 2, 0, 0, $10

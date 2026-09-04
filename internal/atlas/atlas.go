@@ -22,6 +22,7 @@ import (
 
 	"github.com/supercakecrumb/context-atlas/internal/reference"
 	"github.com/supercakecrumb/context-atlas/internal/who"
+	"github.com/supercakecrumb/context-atlas/internal/worldbank"
 )
 
 const (
@@ -42,6 +43,7 @@ type Service struct {
 
 	logger       *slog.Logger
 	fetcher      who.Fetcher
+	wdiFetch     func(context.Context, who.DatasetDefinition) (worldbank.Artifact, error)
 	reference    reference.Document
 	referenceRaw []byte
 	referenceAt  time.Time
@@ -96,6 +98,7 @@ func New(pool *pgxpool.Pool, referenceDir string, logger *slog.Logger) (*Service
 		referenceDir: referenceDir,
 		logger:       logger,
 		fetcher:      who.NewFetcher(who.FetchOptions{}),
+		wdiFetch:     worldbank.Fetch,
 		reference:    document,
 		referenceRaw: raw,
 		referenceAt:  info.ModTime().UTC(),
@@ -309,16 +312,16 @@ func (s *Service) ensureDefinitions(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, seedLockKey); err != nil {
 		return fmt.Errorf("lock dataset seed: %w", err)
 	}
-	for _, definition := range who.CuratedDefinitions() {
+	for _, definition := range append(who.CuratedDefinitions(), worldbank.Definitions()...) {
 		definition, encoded, err := marshalDatasetDefinition(definition)
 		if err != nil {
 			return fmt.Errorf("validate seeded dataset: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO dataset (id, who_indicator_id, who_measure_code, title, source_url, definition)
-			VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+			INSERT INTO dataset (id, indicator_id, indicator_code, title, source_url, definition, source_system)
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
 			ON CONFLICT (id) DO NOTHING`,
-			definition.ID, definition.IndicatorID, definition.IndicatorCode, definition.Name, definition.PageURL, encoded,
+			definition.ID, definition.IndicatorID, definition.IndicatorCode, definition.Name, definition.PageURL, encoded, definition.Source(),
 		); err != nil {
 			return fmt.Errorf("seed dataset %s: %w", definition.ID, err)
 		}
@@ -364,14 +367,24 @@ func marshalDatasetDefinition(definition who.DatasetDefinition) (who.DatasetDefi
 	default:
 		return who.DatasetDefinition{}, nil, fmt.Errorf("dataset definition has unsupported value kind %q", definition.ValueKind)
 	}
-	page, err := who.ValidateIndicatorPageURL(definition.PageURL)
-	if err != nil {
-		return who.DatasetDefinition{}, nil, fmt.Errorf("validate dataset definition page: %w", err)
+	if definition.Source() == worldbank.Source {
+		if err := worldbank.ValidateDefinition(definition); err != nil {
+			return who.DatasetDefinition{}, nil, err
+		}
+	} else {
+		if definition.Source() != "WHO" {
+			return who.DatasetDefinition{}, nil, errors.New("unsupported source system")
+		}
+		page, err := who.ValidateIndicatorPageURL(definition.PageURL)
+		if err != nil {
+			return who.DatasetDefinition{}, nil, fmt.Errorf("validate dataset definition page: %w", err)
+		}
+		if page.IndicatorID != definition.IndicatorID {
+			return who.DatasetDefinition{}, nil, fmt.Errorf("dataset definition page indicator %s does not match %s", page.IndicatorID, definition.IndicatorID)
+		}
+		definition.PageURL = page.URL
+
 	}
-	if page.IndicatorID != definition.IndicatorID {
-		return who.DatasetDefinition{}, nil, fmt.Errorf("dataset definition page indicator %s does not match %s", page.IndicatorID, definition.IndicatorID)
-	}
-	definition.PageURL = page.URL
 	encoded, err := json.Marshal(definition)
 	if err != nil {
 		return who.DatasetDefinition{}, nil, fmt.Errorf("encode dataset definition: %w", err)

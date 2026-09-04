@@ -10,13 +10,19 @@ type SnapshotRef struct {
 }
 
 type DatasetReleaseRef struct {
-	ID            string    `json:"id"`
-	DatasetID     string    `json:"dataset_id"`
-	SHA256        string    `json:"sha256"`
-	SourceURL     string    `json:"source_url" format:"uri"`
-	AccessedAt    time.Time `json:"accessed_at"`
-	Citation      string    `json:"citation"`
-	ParserVersion string    `json:"parser_version"`
+	SourceSystem        string    `json:"source_system,omitempty"`
+	Producer            string    `json:"producer,omitempty"`
+	SourceNote          string    `json:"source_note,omitempty"`
+	LastUpdated         string    `json:"last_updated,omitempty"`
+	LicenseURL          string    `json:"license_url,omitempty"`
+	ArtifactContentType string    `json:"artifact_content_type,omitempty"`
+	ID                  string    `json:"id"`
+	DatasetID           string    `json:"dataset_id"`
+	SHA256              string    `json:"sha256"`
+	SourceURL           string    `json:"source_url" format:"uri"`
+	AccessedAt          time.Time `json:"accessed_at"`
+	Citation            string    `json:"citation"`
+	ParserVersion       string    `json:"parser_version"`
 }
 
 // ResponseMeta makes a response reproducible and carries its source attribution.
@@ -26,6 +32,9 @@ type ResponseMeta struct {
 }
 
 type Dataset struct {
+	SourceSystem  string            `json:"source_system,omitempty"`
+	IndicatorID   string            `json:"indicator_id,omitempty"`
+	IndicatorCode string            `json:"indicator_code,omitempty"`
 	ID            string            `json:"id"`
 	Name          string            `json:"name"`
 	Description   string            `json:"description,omitempty"`
@@ -76,14 +85,15 @@ type CatalogResult struct {
 
 // Geography retains the source identity even when no canonical M49 match exists.
 type Geography struct {
-	SourceCode string `json:"source_code"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	M49        string `json:"m49,omitempty" pattern:"^[0-9]{3}$"`
-	ISO2       string `json:"iso2,omitempty"`
-	ISO3       string `json:"iso3,omitempty"`
-	Mapped     bool   `json:"mapped"`
-	Leaf       bool   `json:"leaf"`
+	SourceSystem string `json:"source_system,omitempty"`
+	SourceCode   string `json:"source_code"`
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`
+	M49          string `json:"m49,omitempty" pattern:"^[0-9]{3}$"`
+	ISO2         string `json:"iso2,omitempty"`
+	ISO3         string `json:"iso3,omitempty"`
+	Mapped       bool   `json:"mapped"`
+	Leaf         bool   `json:"leaf"`
 }
 
 type GeographyResult struct {
@@ -111,6 +121,8 @@ type GroupResult struct {
 }
 
 type Observation struct {
+	SourceNote      string    `json:"source_note,omitempty"`
+	SourceStatus    string    `json:"source_status,omitempty"`
 	SeriesID        string    `json:"series_id"`
 	ReleaseID       string    `json:"release_id"`
 	SourceGeography Geography `json:"source_geography"`

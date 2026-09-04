@@ -9,7 +9,12 @@ import { echarts } from '../echarts';
 import { ChartActions } from './ChartActions';
 import { formatNumber, PublishedValue } from './PublishedValue';
 
-const attribution = 'WHO data as published · Context Atlas · Natural Earth map geometry where shown';
+const attribution = 'Source data as published · Context Atlas';
+
+export function observationAttribution(observations: Observation[]): string {
+  const sources = [...new Set(observations.map((row) => row.source_geography.source_system ?? 'WHO'))].sort();
+  return `${sources.join(' + ') || 'Source'} data as published · Context Atlas`;
+}
 
 function exportAttribution(text = attribution) {
   return { type: 'text' as const, right: 10, bottom: 4, silent: true, style: { text, fill: '#617078', font: '11px sans-serif' } };
@@ -83,6 +88,7 @@ export function buildExactYearLineSeries(observations: Observation[], availableY
 }
 
 export function LineChartView({ observations, availableYears, seriesLabels = new Map(), title, unit, compact }: { observations: Observation[]; availableYears?: number[]; seriesLabels?: Map<string, string>; title: string; unit?: string; compact?: boolean }) {
+  const attribution = observationAttribution(observations);
   const chartRef = useRef<EChartsReactRef>(null);
   const publishedRows = useMemo(() => observations.filter(isPublishedNumeric), [observations]);
   const series = useMemo(() => buildExactYearLineSeries(observations, availableYears, seriesLabels), [availableYears, observations, seriesLabels]);
@@ -94,7 +100,7 @@ export function LineChartView({ observations, availableYears, seriesLabels = new
     animationDuration: 280,
     aria: { enabled: true, description: `${chartTitle(title, unit)} by exact year. ${attribution}.` },
     grid: { left: 54, right: 24, top: 54, bottom: 78, containLabel: false },
-    graphic: exportAttribution(),
+    graphic: exportAttribution(attribution),
     legend: { type: 'scroll', top: 4 },
     tooltip: { trigger: 'axis', valueFormatter: (value) => formatNumber(Number(value)) },
     xAxis: { type: 'value', name: 'Exact year', min: xAxisMin, max: xAxisMax, minInterval: 1, axisLabel: { formatter: '{value}' } },
@@ -255,6 +261,7 @@ export function MapChartView({
   iso2ByM49?: Map<string, string>;
   compact?: boolean;
 }) {
+  const attribution = observationAttribution(observations);
   const chartRef = useRef<EChartsReactRef>(null);
   echarts.registerMap('context-atlas-admin0-50m', geometry as unknown as Parameters<typeof echarts.registerMap>[1]);
 
@@ -303,7 +310,7 @@ export function MapChartView({
       inRange: { color: schemeYlGnBu[8] },
       outOfRange: { color: '#d8d4cb' },
     },
-    graphic: exportAttribution('WHO data · Context Atlas · Natural Earth'),
+    graphic: exportAttribution(`${attribution} · Natural Earth`),
     series: [{
       name: title,
       type: 'map',
@@ -366,7 +373,9 @@ export function buildAssociationRegionSeries(points: AssociationResult['points']
   return unclassifiedPoints?.length ? [...series, { name: 'Unclassified', color: '#667085', symbol: 'circle', points: unclassifiedPoints }] : series;
 }
 
-export function AssociationChartView({ result, xLabel, yLabel, groups, compact }: { result: AssociationResult; xLabel: string; yLabel: string; groups?: M49Group[]; compact?: boolean }) {
+export function AssociationChartView({ result, xLabel, yLabel, groups, compact, datasetIDs }: { datasetIDs?: string[]; result: AssociationResult; xLabel: string; yLabel: string; groups?: M49Group[]; compact?: boolean }) {
+  const sources = [...new Set(result.meta.releases.filter((release) => !datasetIDs || datasetIDs.includes(release.dataset_id)).map((release) => release.source_system ?? 'WHO'))].sort();
+  const attribution = `${sources.join(' + ') || 'Source'} data as published · Context Atlas`;
   const chartRef = useRef<EChartsReactRef>(null);
   const regionSeries = useMemo(() => buildAssociationRegionSeries(result.points, groups), [groups, result.points]);
   const regionByM49 = useMemo(() => new Map(regionSeries.flatMap((series) => series.points.map((point) => [point.m49, series.name] as const))), [regionSeries]);
@@ -374,7 +383,7 @@ export function AssociationChartView({ result, xLabel, yLabel, groups, compact }
     animationDuration: 280,
     aria: { enabled: true, description: `Scatter plot of ${xLabel} and ${yLabel} using independently selected exact years. Points use UN M49 regions with distinct colors and shapes. ${attribution}.` },
     grid: { left: 60, right: 24, top: 54, bottom: 78 },
-    graphic: exportAttribution(),
+    graphic: exportAttribution(attribution),
     legend: { type: 'scroll', top: 2, data: regionSeries.map((series) => ({ name: series.name, icon: series.symbol })) },
     tooltip: { formatter: (params) => {
       const item = Array.isArray(params) ? params[0] : params;
@@ -451,6 +460,7 @@ export function buildAwareCompositionRows(observations: Observation[], seriesByI
 }
 
 export function CompositionChartView({ observations, seriesById, title, compact }: { observations: Observation[]; seriesById: Map<string, Series>; title: string; compact?: boolean }) {
+  const attribution = observationAttribution(observations);
   const chartRef = useRef<EChartsReactRef>(null);
   const rows = useMemo(() => buildAwareCompositionRows(observations, seriesById), [observations, seriesById]);
   const chartRows = useMemo(() => rows
@@ -462,7 +472,7 @@ export function CompositionChartView({ observations, seriesById, title, compact 
     animationDuration: 280,
     aria: { enabled: true, description: `${title} as a 100% stacked composition. ${attribution}.` },
     grid: { left: compact ? 118 : 196, right: 48, top: 54, bottom: 56 },
-    graphic: exportAttribution(),
+    graphic: exportAttribution(attribution),
     legend: { top: 4 },
     tooltip: {
       trigger: 'axis',

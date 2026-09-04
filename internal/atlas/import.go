@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -19,9 +20,10 @@ import (
 	"github.com/supercakecrumb/context-atlas/internal/api"
 	"github.com/supercakecrumb/context-atlas/internal/store/db"
 	"github.com/supercakecrumb/context-atlas/internal/who"
+	"github.com/supercakecrumb/context-atlas/internal/worldbank"
 )
 
-// ConfirmPreview reparses the staged CSV and atomically publishes its release
+// ConfirmPreview reparses the staged artifact and atomically publishes its release
 // together with the next immutable catalog snapshot.
 func (s *Service) ConfirmPreview(ctx context.Context, rawID string) (api.ImportRun, error) {
 	id, err := parseJobID(rawID)
@@ -44,7 +46,7 @@ func (s *Service) ConfirmPreview(ctx context.Context, rawID string) (api.ImportR
 		return api.ImportRun{}, err
 	}
 	if value.State == "preview_ready" && value.ExpiresAt != nil && !value.ExpiresAt.After(s.now().UTC()) {
-		if _, err := tx.Exec(ctx, `UPDATE import_job SET state = 'expired', staged_raw_csv = NULL, finished_at = now() WHERE id = $1`, value.ID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE import_job SET state = 'expired', staged_raw_artifact = NULL, finished_at = now() WHERE id = $1`, value.ID); err != nil {
 			return api.ImportRun{}, fmt.Errorf("expire preview: %w", err)
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -59,7 +61,7 @@ func (s *Service) ConfirmPreview(ctx context.Context, rawID string) (api.ImportR
 	if err != nil {
 		return api.ImportRun{}, err
 	}
-	preview, definition, err := s.rebuildPreview(record, value.StagedRawCSV)
+	preview, definition, err := s.rebuildPreview(record, value.StagedRawArtifact)
 	if err != nil {
 		failure := failureMessage(err)
 		if finishErr := finishJobTx(ctx, tx, value.ID, nil, nil, "failed", failure); finishErr != nil {
@@ -73,7 +75,7 @@ func (s *Service) ConfirmPreview(ctx context.Context, rawID string) (api.ImportR
 	if err := ensureDatasetTx(ctx, tx, definition); err != nil {
 		return api.ImportRun{}, err
 	}
-	releaseID, existing, err := persistReleaseTx(ctx, tx, definition, record, preview, value.StagedRawCSV)
+	releaseID, existing, err := persistReleaseTx(ctx, tx, definition, record, preview, value.StagedRawArtifact)
 	if err != nil {
 		return api.ImportRun{}, err
 	}
@@ -107,21 +109,31 @@ func (s *Service) rebuildPreview(record previewRecord, raw []byte) (who.Preview,
 		return who.Preview{}, who.DatasetDefinition{}, errors.New("persisted preview has no dataset definition")
 	}
 	if len(raw) == 0 {
-		return who.Preview{}, who.DatasetDefinition{}, errors.New("persisted preview has no staged CSV")
+		return who.Preview{}, who.DatasetDefinition{}, errors.New("persisted preview has no staged artifact")
 	}
 	definition := *record.Dataset
 	sourceURL := record.Artifact.DownloadURL
 	if sourceURL == "" {
 		sourceURL = record.Summary.SourceURL
 	}
-	preview, err := who.BuildPreview(raw, who.PreviewOptions{
-		Dataset: &definition, SourceURL: sourceURL, AccessedAt: record.Summary.AccessedAt, ResolveM49: s.resolveM49,
-	})
+	var preview who.Preview
+	var err error
+	if definition.Source() == worldbank.Source {
+		var metadata worldbank.Metadata
+		preview, metadata, err = worldbank.BuildPreview(raw, definition, record.Summary.AccessedAt, s.iso3ToM49())
+		if err == nil && (record.Artifact.WorldBank == nil || !reflect.DeepEqual(metadata, *record.Artifact.WorldBank)) {
+			err = errors.New("world bank metadata does not match the original artifact")
+		}
+	} else {
+		preview, err = who.BuildPreview(raw, who.PreviewOptions{
+			Dataset: &definition, SourceURL: sourceURL, AccessedAt: record.Summary.AccessedAt, ResolveM49: s.resolveM49,
+		})
+	}
 	if err != nil {
 		return preview, definition, err
 	}
 	if record.Summary.SHA256 != "" && preview.SHA256 != record.Summary.SHA256 {
-		return preview, definition, errors.New("staged CSV checksum no longer matches the preview")
+		return preview, definition, errors.New("staged artifact checksum no longer matches the preview")
 	}
 	return preview, definition, nil
 }
@@ -132,10 +144,10 @@ func ensureDatasetTx(ctx context.Context, tx pgx.Tx, definition who.DatasetDefin
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO dataset (id, who_indicator_id, who_measure_code, title, source_url, definition)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+		INSERT INTO dataset (id, indicator_id, indicator_code, title, source_url, definition, source_system)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
 		ON CONFLICT (id) DO NOTHING`,
-		definition.ID, definition.IndicatorID, definition.IndicatorCode, definition.Name, definition.PageURL, encoded,
+		definition.ID, definition.IndicatorID, definition.IndicatorCode, definition.Name, definition.PageURL, encoded, definition.Source(),
 	); err != nil {
 		return fmt.Errorf("ensure preview dataset: %w", err)
 	}
@@ -179,7 +191,7 @@ func persistReleaseTx(ctx context.Context, tx pgx.Tx, definition who.DatasetDefi
 	var releaseID int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO dataset_release (
-			dataset_id, source_url, citation, accessed_at, raw_csv, sha256, response_metadata, csv_headers,
+			dataset_id, source_url, citation, accessed_at, raw_artifact, sha256, response_metadata, source_fields,
 			schema_fingerprint, parser_version, source_row_count, imported_row_count,
 			duplicate_row_count, rejected_row_count, diagnostics
 		) VALUES (
@@ -187,8 +199,8 @@ func persistReleaseTx(ctx context.Context, tx pgx.Tx, definition who.DatasetDefi
 		)
 		ON CONFLICT (dataset_id, sha256) DO NOTHING
 		RETURNING id`,
-		definition.ID, preview.SourceURL, citation(definition), preview.AccessedAt, raw, preview.SHA256,
-		metadata, headers, preview.Schema.Fingerprint, parserVersion,
+		definition.ID, preview.SourceURL, releaseCitation(definition, record), preview.AccessedAt, raw, preview.SHA256,
+		metadata, headers, preview.Schema.Fingerprint, releaseParser(definition),
 		preview.Accounting.RowsRead, preview.Accounting.UniqueObservations, preview.Accounting.ExactDuplicates,
 		preview.Accounting.ConflictingRows+preview.Accounting.InvalidRows, diagnostics,
 	).Scan(&releaseID)
@@ -229,7 +241,7 @@ func insertPreviewFacts(ctx context.Context, tx pgx.Tx, definition who.DatasetDe
 				m49 = pgtype.Text{String: observation.CanonicalM49, Valid: true}
 			}
 			geography, err := geographies.InsertSourceGeography(ctx, db.InsertSourceGeographyParams{
-				SourceSystem: "WHO", SourceCode: observation.SourceGeo.Code, Name: observation.SourceGeo.Name,
+				SourceSystem: definition.Source(), SourceCode: observation.SourceGeo.Code, Name: observation.SourceGeo.Name,
 				GeographyKind: observation.SourceGeo.Type, CanonicalM49Code: m49,
 			})
 			if err != nil {
@@ -246,7 +258,7 @@ func insertPreviewFacts(ctx context.Context, tx pgx.Tx, definition who.DatasetDe
 			definition.ID, releaseID, seriesID, geographyID, int16(observation.Year), observation.Value.Raw, observation.Value.Display,
 			numericArgument(observation.Value.Numeric), numericArgument(boundNumeric(observation, observation.LowerBound)),
 			numericArgument(boundNumeric(observation, observation.UpperBound)), string(observation.Value.Status), observation.SourceGeo.PublishState,
-			observation.SourceRowKey, nullableText(observation.CanonicalM49),
+			observation.SourceRowKey, nullableText(observation.CanonicalM49), observation.SourceNote, observation.SourceStatus,
 		})
 	}
 	if len(rows) == 0 {
@@ -254,7 +266,7 @@ func insertPreviewFacts(ctx context.Context, tx pgx.Tx, definition who.DatasetDe
 	}
 	_, err := tx.CopyFrom(ctx, pgx.Identifier{"observation"}, []string{
 		"dataset_id", "release_id", "series_id", "source_geography_id", "year", "raw_value", "display_value",
-		"numeric_value", "lower_bound", "upper_bound", "value_status", "publish_state", "source_row_key", "canonical_m49_code",
+		"numeric_value", "lower_bound", "upper_bound", "value_status", "publish_state", "source_row_key", "canonical_m49_code", "source_note", "source_status",
 	}, pgx.CopyFromRows(rows))
 	if err != nil {
 		return fmt.Errorf("copy observations: %w", err)
@@ -289,7 +301,7 @@ func upsertSeries(ctx context.Context, tx pgx.Tx, definition who.DatasetDefiniti
 
 func sourceGeographyKey(observation who.Observation) string {
 	return strings.Join([]string{
-		"WHO", observation.SourceGeo.Code, observation.SourceGeo.Type, observation.SourceGeo.Name, observation.CanonicalM49,
+		observation.SourceGeo.Code, observation.SourceGeo.Type, observation.SourceGeo.Name, observation.CanonicalM49,
 	}, "\x00")
 }
 

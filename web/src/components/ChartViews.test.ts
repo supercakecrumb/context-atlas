@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { AssociationResult, Group as M49Group, Observation, Series } from '../api/types';
 import { alcoholSeries, geometry, observations } from '../test/fixtures';
-import { buildAssociationRegionSeries, buildAwareCompositionRows, buildExactYearLineSeries, buildMapTableRows, flagForISO2 } from './ChartViews';
+import { observationAttribution, buildAssociationRegionSeries, buildAwareCompositionRows, buildExactYearLineSeries, buildMapTableRows, flagForISO2 } from './ChartViews';
 
 const unitedStates = observations.observations[0] as Observation;
 
 describe('chart data guards', () => {
+  it('attributes World Bank charts to their actual provider', () => {
+    const row = { ...unitedStates, source_geography: { ...unitedStates.source_geography, source_system: 'World Bank' } };
+    expect(observationAttribution([row])).toContain('World Bank');
+    expect(observationAttribution([row])).not.toContain('WHO');
+    expect(observationAttribution([row, unitedStates])).toContain('WHO + World Bank');
+  });
   it('emits explicit nulls for years absent from a line series', () => {
     const laterYear: Observation = { ...unitedStates, year: 2002, numeric_value: 9.1, display_value: '9.1', source_row_key: 'a-2' };
     const [series] = buildExactYearLineSeries([unitedStates, laterYear], [2000, 2001, 2002]);

@@ -118,7 +118,7 @@ func TestRedirectLimitIsBoundedAndValidated(t *testing.T) {
 	fetcher := NewFetcher(FetchOptions{Resolver: IPResolverFunc(func(context.Context, string) ([]net.IPAddr, error) {
 		return []net.IPAddr{{IP: net.ParseIP("8.8.8.8")}}, nil
 	})})
-	client := fetcher.httpClient(WHOBlobHost, func(raw string) error {
+	client := fetcher.PublicClient(WHOBlobHost, func(raw string) error {
 		_, err := ValidateDownloadURL(raw)
 		return err
 	})

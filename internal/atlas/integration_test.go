@@ -108,7 +108,7 @@ func seedAssociationFixture(t *testing.T, service *Service, ctx context.Context)
 	var releaseID int64
 	err := service.pool.QueryRow(ctx, `
 		INSERT INTO dataset_release (
-			dataset_id, source_url, citation, accessed_at, raw_csv, sha256, response_metadata, csv_headers,
+			dataset_id, source_url, citation, accessed_at, raw_artifact, sha256, response_metadata, source_fields,
 			schema_fingerprint, parser_version, source_row_count, imported_row_count,
 			duplicate_row_count, rejected_row_count, diagnostics
 		) VALUES ($1, $2, 'fixture', now(), $3, $4, '{}'::jsonb, '["fixture"]'::jsonb, $5, 'fixture-v1', $6, $6, 0, 0, '{}'::jsonb)

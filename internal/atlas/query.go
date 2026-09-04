@@ -62,9 +62,15 @@ func (s *Service) resolveSnapshot(ctx context.Context, requested string) (resolv
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT release.id, release.dataset_id, release.sha256, release.source_url, release.accessed_at,
-		       release.citation, release.parser_version
+		       release.citation, release.parser_version, dataset.source_system,
+ COALESCE(release.response_metadata->'world_bank'->>'producer', ''),
+ COALESCE(release.response_metadata->'world_bank'->>'source_note', ''),
+ COALESCE(release.response_metadata->'world_bank'->>'last_updated', ''),
+ COALESCE(release.response_metadata->'world_bank'->>'license_url', ''),
+ COALESCE(release.response_metadata->>'content_type', '')
 		FROM catalog_snapshot_release pinned
 		JOIN dataset_release release ON release.id = pinned.release_id
+ JOIN dataset ON dataset.id = release.dataset_id
 		WHERE pinned.snapshot_id = $1
 		ORDER BY pinned.dataset_id
 	`, id)
@@ -78,11 +84,13 @@ func (s *Service) resolveSnapshot(ctx context.Context, requested string) (resolv
 		var releaseID int64
 		var datasetID, sha, sourceURL, citation, parserVersion string
 		var accessedAt time.Time
-		if err := rows.Scan(&releaseID, &datasetID, &sha, &sourceURL, &accessedAt, &citation, &parserVersion); err != nil {
+		var source, producer, note, updated, license, contentType string
+		if err := rows.Scan(&releaseID, &datasetID, &sha, &sourceURL, &accessedAt, &citation, &parserVersion, &source, &producer, &note, &updated, &license, &contentType); err != nil {
 			return resolvedSnapshot{}, fmt.Errorf("%w: scan snapshot release: %v", api.ErrUnavailable, err)
 		}
 		releases = append(releases, api.DatasetReleaseRef{
 			ID: strconv.FormatInt(releaseID, 10), DatasetID: datasetID, SHA256: sha,
+			SourceSystem: source, Producer: producer, SourceNote: note, LastUpdated: updated, LicenseURL: license, ArtifactContentType: contentType,
 			SourceURL: sourceURL, AccessedAt: accessedAt.UTC(), Citation: citation, ParserVersion: parserVersion,
 		})
 	}
@@ -112,8 +120,8 @@ func (s *Service) Catalog(ctx context.Context, requested string) (api.CatalogRes
 	}
 
 	datasetRows, err := s.pool.Query(ctx, `
-		SELECT dataset.id, dataset.title, dataset.who_indicator_id, dataset.who_measure_code,
-		       dataset.source_url, pinned.release_id
+		SELECT dataset.id, dataset.title, dataset.indicator_id, dataset.indicator_code,
+		       dataset.source_url, pinned.release_id, dataset.source_system, COALESCE(dataset.definition->>'description', '')
 		FROM catalog_snapshot_release pinned
 		JOIN dataset ON dataset.id = pinned.dataset_id
 		WHERE pinned.snapshot_id = $1
@@ -126,9 +134,9 @@ func (s *Service) Catalog(ctx context.Context, requested string) (api.CatalogRes
 
 	datasets := make([]api.Dataset, 0, len(snapshot.meta.Releases))
 	for datasetRows.Next() {
-		var id, name, indicatorID, code, sourceURL string
+		var id, name, indicatorID, code, sourceURL, source, description string
 		var releaseID int64
-		if err := datasetRows.Scan(&id, &name, &indicatorID, &code, &sourceURL, &releaseID); err != nil {
+		if err := datasetRows.Scan(&id, &name, &indicatorID, &code, &sourceURL, &releaseID, &source, &description); err != nil {
 			return api.CatalogResult{}, fmt.Errorf("%w: scan catalog dataset: %v", api.ErrUnavailable, err)
 		}
 		release, ok := releases[strconv.FormatInt(releaseID, 10)]
@@ -139,8 +147,13 @@ func (s *Service) Catalog(ctx context.Context, requested string) (api.CatalogRes
 		if definition, ok := definitionForID(id); ok {
 			capabilities = append([]string{"table"}, definition.Capabilities...)
 		}
+		whoID, whoCode := "", ""
+		if source == "WHO" {
+			whoID, whoCode = indicatorID, code
+		}
 		datasets = append(datasets, api.Dataset{
-			ID: id, Name: name, WHOIdentifier: indicatorID, WHOCode: code, SourceURL: sourceURL,
+			ID: id, Name: name, WHOIdentifier: whoID, WHOCode: whoCode, SourceURL: sourceURL,
+			SourceSystem: source, IndicatorID: indicatorID, IndicatorCode: code, Description: description,
 			Citation: release.Citation, Capabilities: sortedUnique(capabilities), Release: release,
 		})
 	}
@@ -270,7 +283,7 @@ func (s *Service) Geographies(ctx context.Context, query api.GeographyQuery) (ap
 		return api.GeographyResult{}, err
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT source.source_code, source.name, source.geography_kind,
+		SELECT DISTINCT source.source_code, source.name, source.geography_kind, source.source_system,
 		       COALESCE(observation.canonical_m49_code, source.canonical_m49_code),
 		       m49.code IS NOT NULL, COALESCE(m49.is_leaf, false), m49.iso_alpha2, m49.iso_alpha3
 		FROM catalog_snapshot_release pinned
@@ -289,14 +302,14 @@ func (s *Service) Geographies(ctx context.Context, query api.GeographyQuery) (ap
 
 	geographies := map[string]api.Geography{}
 	for rows.Next() {
-		var sourceCode, name, kind string
+		var sourceCode, name, kind, sourceSystem string
 		var m49, iso2, iso3 pgtype.Text
 		var mapped, leaf bool
-		if err := rows.Scan(&sourceCode, &name, &kind, &m49, &mapped, &leaf, &iso2, &iso3); err != nil {
+		if err := rows.Scan(&sourceCode, &name, &kind, &sourceSystem, &m49, &mapped, &leaf, &iso2, &iso3); err != nil {
 			return api.GeographyResult{}, fmt.Errorf("%w: scan source geography: %v", api.ErrUnavailable, err)
 		}
 		geography := api.Geography{
-			SourceCode: sourceCode, Name: name, Kind: kind, M49: textValue(m49), ISO2: textValue(iso2), ISO3: textValue(iso3),
+			SourceSystem: sourceSystem, SourceCode: sourceCode, Name: name, Kind: kind, M49: textValue(m49), ISO2: textValue(iso2), ISO3: textValue(iso3),
 			Mapped: mapped, Leaf: leaf,
 		}
 		geographies[geographyKey(geography)] = geography
@@ -323,7 +336,7 @@ func (s *Service) Geographies(ctx context.Context, query api.GeographyQuery) (ap
 			return api.GeographyResult{}, fmt.Errorf("%w: scan M49 geography: %v", api.ErrUnavailable, err)
 		}
 		geography := api.Geography{
-			SourceCode: code, Name: name, Kind: kind, M49: code, ISO2: textValue(iso2), ISO3: textValue(iso3), Mapped: true, Leaf: leaf,
+			SourceSystem: "UN M49", SourceCode: code, Name: name, Kind: kind, M49: code, ISO2: textValue(iso2), ISO3: textValue(iso3), Mapped: true, Leaf: leaf,
 		}
 		geographies[geographyKey(geography)] = geography
 	}
@@ -477,7 +490,7 @@ func seriesName(label string, dimensions map[string]string) string {
 }
 
 func geographyKey(geography api.Geography) string {
-	return strings.Join([]string{geography.SourceCode, geography.Name, geography.Kind, geography.M49}, "\x00")
+	return strings.Join([]string{geography.SourceSystem, geography.SourceCode, geography.Name, geography.Kind, geography.M49}, "\x00")
 }
 
 func textValue(value pgtype.Text) string {

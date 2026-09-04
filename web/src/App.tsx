@@ -4,6 +4,7 @@ import { AboutPage } from './pages/AboutPage';
 import { AdminPage } from './pages/AdminPage';
 import { DataPage } from './pages/DataPage';
 import { ExplorePage } from './pages/ExplorePage';
+import { CountryPage } from './pages/CountryPage';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -14,6 +15,7 @@ export function App() {
       <Route element={<SiteLayout />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/explore" element={<ExplorePage />} />
+        <Route path="/countries" element={<CountryPage />} />
         <Route path="/data" element={<DataPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/admin" element={<AdminPage />} />

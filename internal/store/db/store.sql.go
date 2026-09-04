@@ -333,25 +333,25 @@ func (q *Queries) InsertCatalogSnapshotRelease(ctx context.Context, arg InsertCa
 }
 
 const insertDataset = `-- name: InsertDataset :one
-INSERT INTO dataset (id, who_indicator_id, who_measure_code, title, source_url, definition)
+INSERT INTO dataset (id, indicator_id, indicator_code, title, source_url, definition)
 VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-RETURNING id, who_indicator_id, who_measure_code, title, source_url, definition, created_at
+RETURNING id, indicator_id, indicator_code, title, source_url, definition, created_at, source_system
 `
 
 type InsertDatasetParams struct {
-	ID             string `json:"id"`
-	WhoIndicatorID string `json:"who_indicator_id"`
-	WhoMeasureCode string `json:"who_measure_code"`
-	Title          string `json:"title"`
-	SourceUrl      string `json:"source_url"`
-	Definition     []byte `json:"definition"`
+	ID            string `json:"id"`
+	IndicatorID   string `json:"indicator_id"`
+	IndicatorCode string `json:"indicator_code"`
+	Title         string `json:"title"`
+	SourceUrl     string `json:"source_url"`
+	Definition    []byte `json:"definition"`
 }
 
 func (q *Queries) InsertDataset(ctx context.Context, arg InsertDatasetParams) (Dataset, error) {
 	row := q.db.QueryRow(ctx, insertDataset,
 		arg.ID,
-		arg.WhoIndicatorID,
-		arg.WhoMeasureCode,
+		arg.IndicatorID,
+		arg.IndicatorCode,
 		arg.Title,
 		arg.SourceUrl,
 		arg.Definition,
@@ -359,25 +359,26 @@ func (q *Queries) InsertDataset(ctx context.Context, arg InsertDatasetParams) (D
 	var i Dataset
 	err := row.Scan(
 		&i.ID,
-		&i.WhoIndicatorID,
-		&i.WhoMeasureCode,
+		&i.IndicatorID,
+		&i.IndicatorCode,
 		&i.Title,
 		&i.SourceUrl,
 		&i.Definition,
 		&i.CreatedAt,
+		&i.SourceSystem,
 	)
 	return i, err
 }
 
 const insertDatasetRelease = `-- name: InsertDatasetRelease :one
 INSERT INTO dataset_release (
-    dataset_id, source_url, citation, accessed_at, raw_csv, sha256, response_metadata, csv_headers,
+    dataset_id, source_url, citation, accessed_at, raw_artifact, sha256, response_metadata, source_fields,
     schema_fingerprint, parser_version, source_row_count, imported_row_count,
     duplicate_row_count, rejected_row_count, diagnostics
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
-RETURNING id, dataset_id, source_url, citation, accessed_at, raw_csv, sha256, response_metadata, csv_headers, schema_fingerprint, parser_version, source_row_count, imported_row_count, duplicate_row_count, rejected_row_count, diagnostics, created_at
+RETURNING id, dataset_id, source_url, citation, accessed_at, raw_artifact, sha256, response_metadata, source_fields, schema_fingerprint, parser_version, source_row_count, imported_row_count, duplicate_row_count, rejected_row_count, diagnostics, created_at
 `
 
 type InsertDatasetReleaseParams struct {
@@ -385,10 +386,10 @@ type InsertDatasetReleaseParams struct {
 	SourceUrl         string             `json:"source_url"`
 	Citation          string             `json:"citation"`
 	AccessedAt        pgtype.Timestamptz `json:"accessed_at"`
-	RawCsv            []byte             `json:"raw_csv"`
+	RawArtifact       []byte             `json:"raw_artifact"`
 	Sha256            string             `json:"sha256"`
 	ResponseMetadata  []byte             `json:"response_metadata"`
-	CsvHeaders        []byte             `json:"csv_headers"`
+	SourceFields      []byte             `json:"source_fields"`
 	SchemaFingerprint string             `json:"schema_fingerprint"`
 	ParserVersion     string             `json:"parser_version"`
 	SourceRowCount    int32              `json:"source_row_count"`
@@ -404,10 +405,10 @@ func (q *Queries) InsertDatasetRelease(ctx context.Context, arg InsertDatasetRel
 		arg.SourceUrl,
 		arg.Citation,
 		arg.AccessedAt,
-		arg.RawCsv,
+		arg.RawArtifact,
 		arg.Sha256,
 		arg.ResponseMetadata,
-		arg.CsvHeaders,
+		arg.SourceFields,
 		arg.SchemaFingerprint,
 		arg.ParserVersion,
 		arg.SourceRowCount,
@@ -423,10 +424,10 @@ func (q *Queries) InsertDatasetRelease(ctx context.Context, arg InsertDatasetRel
 		&i.SourceUrl,
 		&i.Citation,
 		&i.AccessedAt,
-		&i.RawCsv,
+		&i.RawArtifact,
 		&i.Sha256,
 		&i.ResponseMetadata,
-		&i.CsvHeaders,
+		&i.SourceFields,
 		&i.SchemaFingerprint,
 		&i.ParserVersion,
 		&i.SourceRowCount,
@@ -442,7 +443,7 @@ func (q *Queries) InsertDatasetRelease(ctx context.Context, arg InsertDatasetRel
 const insertImportJob = `-- name: InsertImportJob :one
 INSERT INTO import_job (dataset_id, requested_by, import_kind, state, source_url, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, dataset_id, release_id, requested_by, import_kind, state, source_url, discovered_url, staged_raw_csv, preview, error_message, expires_at, created_at, started_at, finished_at
+RETURNING id, dataset_id, release_id, requested_by, import_kind, state, source_url, discovered_url, staged_raw_artifact, preview, error_message, expires_at, created_at, started_at, finished_at
 `
 
 type InsertImportJobParams struct {
@@ -473,7 +474,7 @@ func (q *Queries) InsertImportJob(ctx context.Context, arg InsertImportJobParams
 		&i.State,
 		&i.SourceUrl,
 		&i.DiscoveredUrl,
-		&i.StagedRawCsv,
+		&i.StagedRawArtifact,
 		&i.Preview,
 		&i.ErrorMessage,
 		&i.ExpiresAt,
@@ -646,7 +647,7 @@ INSERT INTO observation (
     display_value, numeric_value, lower_bound, upper_bound, value_status,
     publish_state, source_row_key, canonical_m49_code
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, dataset_id, release_id, series_id, source_geography_id, year, raw_value, display_value, numeric_value, lower_bound, upper_bound, value_status, publish_state, source_row_key, canonical_m49_code, created_at
+RETURNING id, dataset_id, release_id, series_id, source_geography_id, year, raw_value, display_value, numeric_value, lower_bound, upper_bound, value_status, publish_state, source_row_key, canonical_m49_code, created_at, source_note, source_status
 `
 
 type InsertObservationParams struct {
@@ -701,6 +702,8 @@ func (q *Queries) InsertObservation(ctx context.Context, arg InsertObservationPa
 		&i.SourceRowKey,
 		&i.CanonicalM49Code,
 		&i.CreatedAt,
+		&i.SourceNote,
+		&i.SourceStatus,
 	)
 	return i, err
 }
@@ -904,7 +907,7 @@ func (q *Queries) ListAssociationPoints(ctx context.Context, arg ListAssociation
 }
 
 const listCatalogDatasets = `-- name: ListCatalogDatasets :many
-SELECT d.id AS dataset_id, d.who_indicator_id, d.who_measure_code, d.title,
+SELECT d.id AS dataset_id, d.indicator_id, d.indicator_code, d.title,
        r.id AS release_id, r.accessed_at, r.source_url, r.citation
 FROM catalog_snapshot_release csr
 JOIN dataset d ON d.id = csr.dataset_id
@@ -914,14 +917,14 @@ ORDER BY d.title
 `
 
 type ListCatalogDatasetsRow struct {
-	DatasetID      string             `json:"dataset_id"`
-	WhoIndicatorID string             `json:"who_indicator_id"`
-	WhoMeasureCode string             `json:"who_measure_code"`
-	Title          string             `json:"title"`
-	ReleaseID      int64              `json:"release_id"`
-	AccessedAt     pgtype.Timestamptz `json:"accessed_at"`
-	SourceUrl      string             `json:"source_url"`
-	Citation       string             `json:"citation"`
+	DatasetID     string             `json:"dataset_id"`
+	IndicatorID   string             `json:"indicator_id"`
+	IndicatorCode string             `json:"indicator_code"`
+	Title         string             `json:"title"`
+	ReleaseID     int64              `json:"release_id"`
+	AccessedAt    pgtype.Timestamptz `json:"accessed_at"`
+	SourceUrl     string             `json:"source_url"`
+	Citation      string             `json:"citation"`
 }
 
 func (q *Queries) ListCatalogDatasets(ctx context.Context, snapshotID string) ([]ListCatalogDatasetsRow, error) {
@@ -935,8 +938,8 @@ func (q *Queries) ListCatalogDatasets(ctx context.Context, snapshotID string) ([
 		var i ListCatalogDatasetsRow
 		if err := rows.Scan(
 			&i.DatasetID,
-			&i.WhoIndicatorID,
-			&i.WhoMeasureCode,
+			&i.IndicatorID,
+			&i.IndicatorCode,
 			&i.Title,
 			&i.ReleaseID,
 			&i.AccessedAt,
@@ -1072,7 +1075,7 @@ func (q *Queries) ListGroupsForM49Release(ctx context.Context, m49ReleaseID int6
 }
 
 const listObservationsForSeries = `-- name: ListObservationsForSeries :many
-SELECT o.id, o.dataset_id, o.release_id, o.series_id, o.source_geography_id, o.year, o.raw_value, o.display_value, o.numeric_value, o.lower_bound, o.upper_bound, o.value_status, o.publish_state, o.source_row_key, o.canonical_m49_code, o.created_at
+SELECT o.id, o.dataset_id, o.release_id, o.series_id, o.source_geography_id, o.year, o.raw_value, o.display_value, o.numeric_value, o.lower_bound, o.upper_bound, o.value_status, o.publish_state, o.source_row_key, o.canonical_m49_code, o.created_at, o.source_note, o.source_status
 FROM catalog_snapshot_release csr
 JOIN observation o ON o.release_id = csr.release_id
 WHERE csr.snapshot_id = $1
@@ -1122,6 +1125,8 @@ func (q *Queries) ListObservationsForSeries(ctx context.Context, arg ListObserva
 			&i.SourceRowKey,
 			&i.CanonicalM49Code,
 			&i.CreatedAt,
+			&i.SourceNote,
+			&i.SourceStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -1256,25 +1261,25 @@ UPDATE import_job
 SET release_id = $2,
     state = $3,
     discovered_url = $4,
-    staged_raw_csv = $5,
+    staged_raw_artifact = $5,
     preview = $6,
     error_message = $7,
     started_at = $8,
     finished_at = $9
 WHERE id = $1
-RETURNING id, dataset_id, release_id, requested_by, import_kind, state, source_url, discovered_url, staged_raw_csv, preview, error_message, expires_at, created_at, started_at, finished_at
+RETURNING id, dataset_id, release_id, requested_by, import_kind, state, source_url, discovered_url, staged_raw_artifact, preview, error_message, expires_at, created_at, started_at, finished_at
 `
 
 type UpdateImportJobParams struct {
-	ID            int64              `json:"id"`
-	ReleaseID     pgtype.Int8        `json:"release_id"`
-	State         string             `json:"state"`
-	DiscoveredUrl pgtype.Text        `json:"discovered_url"`
-	StagedRawCsv  []byte             `json:"staged_raw_csv"`
-	Preview       []byte             `json:"preview"`
-	ErrorMessage  pgtype.Text        `json:"error_message"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	ID                int64              `json:"id"`
+	ReleaseID         pgtype.Int8        `json:"release_id"`
+	State             string             `json:"state"`
+	DiscoveredUrl     pgtype.Text        `json:"discovered_url"`
+	StagedRawArtifact []byte             `json:"staged_raw_artifact"`
+	Preview           []byte             `json:"preview"`
+	ErrorMessage      pgtype.Text        `json:"error_message"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	FinishedAt        pgtype.Timestamptz `json:"finished_at"`
 }
 
 func (q *Queries) UpdateImportJob(ctx context.Context, arg UpdateImportJobParams) (ImportJob, error) {
@@ -1283,7 +1288,7 @@ func (q *Queries) UpdateImportJob(ctx context.Context, arg UpdateImportJobParams
 		arg.ReleaseID,
 		arg.State,
 		arg.DiscoveredUrl,
-		arg.StagedRawCsv,
+		arg.StagedRawArtifact,
 		arg.Preview,
 		arg.ErrorMessage,
 		arg.StartedAt,
@@ -1299,7 +1304,7 @@ func (q *Queries) UpdateImportJob(ctx context.Context, arg UpdateImportJobParams
 		&i.State,
 		&i.SourceUrl,
 		&i.DiscoveredUrl,
-		&i.StagedRawCsv,
+		&i.StagedRawArtifact,
 		&i.Preview,
 		&i.ErrorMessage,
 		&i.ExpiresAt,

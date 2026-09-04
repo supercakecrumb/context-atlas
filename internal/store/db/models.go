@@ -44,13 +44,14 @@ type CatalogSnapshotRelease struct {
 }
 
 type Dataset struct {
-	ID             string             `json:"id"`
-	WhoIndicatorID string             `json:"who_indicator_id"`
-	WhoMeasureCode string             `json:"who_measure_code"`
-	Title          string             `json:"title"`
-	SourceUrl      string             `json:"source_url"`
-	Definition     []byte             `json:"definition"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ID            string             `json:"id"`
+	IndicatorID   string             `json:"indicator_id"`
+	IndicatorCode string             `json:"indicator_code"`
+	Title         string             `json:"title"`
+	SourceUrl     string             `json:"source_url"`
+	Definition    []byte             `json:"definition"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	SourceSystem  string             `json:"source_system"`
 }
 
 type DatasetRelease struct {
@@ -59,10 +60,10 @@ type DatasetRelease struct {
 	SourceUrl         string             `json:"source_url"`
 	Citation          string             `json:"citation"`
 	AccessedAt        pgtype.Timestamptz `json:"accessed_at"`
-	RawCsv            []byte             `json:"raw_csv"`
+	RawArtifact       []byte             `json:"raw_artifact"`
 	Sha256            string             `json:"sha256"`
 	ResponseMetadata  []byte             `json:"response_metadata"`
-	CsvHeaders        []byte             `json:"csv_headers"`
+	SourceFields      []byte             `json:"source_fields"`
 	SchemaFingerprint string             `json:"schema_fingerprint"`
 	ParserVersion     string             `json:"parser_version"`
 	SourceRowCount    int32              `json:"source_row_count"`
@@ -74,21 +75,21 @@ type DatasetRelease struct {
 }
 
 type ImportJob struct {
-	ID            int64              `json:"id"`
-	DatasetID     pgtype.Text        `json:"dataset_id"`
-	ReleaseID     pgtype.Int8        `json:"release_id"`
-	RequestedBy   string             `json:"requested_by"`
-	ImportKind    string             `json:"import_kind"`
-	State         string             `json:"state"`
-	SourceUrl     string             `json:"source_url"`
-	DiscoveredUrl pgtype.Text        `json:"discovered_url"`
-	StagedRawCsv  []byte             `json:"staged_raw_csv"`
-	Preview       []byte             `json:"preview"`
-	ErrorMessage  pgtype.Text        `json:"error_message"`
-	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	ID                int64              `json:"id"`
+	DatasetID         pgtype.Text        `json:"dataset_id"`
+	ReleaseID         pgtype.Int8        `json:"release_id"`
+	RequestedBy       string             `json:"requested_by"`
+	ImportKind        string             `json:"import_kind"`
+	State             string             `json:"state"`
+	SourceUrl         string             `json:"source_url"`
+	DiscoveredUrl     pgtype.Text        `json:"discovered_url"`
+	StagedRawArtifact []byte             `json:"staged_raw_artifact"`
+	Preview           []byte             `json:"preview"`
+	ErrorMessage      pgtype.Text        `json:"error_message"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	FinishedAt        pgtype.Timestamptz `json:"finished_at"`
 }
 
 type M49Geography struct {
@@ -150,6 +151,8 @@ type Observation struct {
 	SourceRowKey      string             `json:"source_row_key"`
 	CanonicalM49Code  pgtype.Text        `json:"canonical_m49_code"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	SourceNote        string             `json:"source_note"`
+	SourceStatus      string             `json:"source_status"`
 }
 
 type Series struct {

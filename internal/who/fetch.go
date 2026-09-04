@@ -118,7 +118,7 @@ func (fetcher Fetcher) fetchDownload(ctx context.Context, link DownloadLink) (Fe
 		return FetchedArtifact{}, err
 	}
 
-	client := fetcher.httpClient(WHOBlobHost, func(raw string) error {
+	client := fetcher.PublicClient(WHOBlobHost, func(raw string) error {
 		_, err := ValidateDownloadURL(raw)
 		return err
 	})
@@ -180,7 +180,7 @@ func (fetcher Fetcher) DiscoverDownload(ctx context.Context, rawPageURL string) 
 		return DownloadDiscovery{}, err
 	}
 
-	client := fetcher.httpClient(WHODataHost, func(raw string) error {
+	client := fetcher.PublicClient(WHODataHost, func(raw string) error {
 		_, err := ValidateIndicatorPageURL(raw)
 		return err
 	})
@@ -254,7 +254,10 @@ func (fetcher Fetcher) normalized() Fetcher {
 	return fetcher
 }
 
-func (fetcher Fetcher) httpClient(host string, validateRedirect func(string) error) *http.Client {
+// PublicClient reuses DNS pinning and network limits for an explicitly allowed
+// provider. Callers validate the initial URL; every redirect is validated here.
+func (fetcher Fetcher) PublicClient(host string, validateRedirect func(string) error) *http.Client {
+	fetcher = fetcher.normalized()
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.ResponseHeaderTimeout = 15 * time.Second

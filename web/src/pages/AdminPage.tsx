@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Card, Container, Divider, Group, List, SimpleGrid, Stack, Text, TextInput, Title } from '@mantine/core';
+import { Alert, Badge, Button, Card, Container, Divider, Group, List, Select, SimpleGrid, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { CheckCircle2, Clock3, LogOut, RefreshCw, ShieldCheck, Upload } from 'lucide-react';
@@ -10,6 +10,10 @@ import type { ImportPreview } from '../api/types';
 
 const whoIndicatorPage = /^https:\/\/data\.who\.int\/indicators\/i\/(?:[A-Za-z0-9]{7}\/)?[A-Za-z0-9]{7}$/;
 
+const wdiIndicators = [
+  ['SP.POP.TOTL', 'Population'], ['SP.URB.TOTL.IN.ZS', 'Urban population'], ['NY.GDP.PCAP.PP.KD', 'GDP per capita, PPP'], ['SI.POV.GINI', 'Gini index'], ['SL.UEM.TOTL.ZS', 'Unemployment (modelled ILO estimate)'],
+].map(([code, label]) => ({ value: `https://data.worldbank.org/indicator/${code}`, label }));
+export const isSupportedIndicatorPage = (value: string) => isWHOIndicatorPage(value) || wdiIndicators.some((indicator) => indicator.value === value);
 export const isWHOIndicatorPage = (value: string) => whoIndicatorPage.test(value);
 
 export function AdminPage() {
@@ -24,7 +28,7 @@ export function AdminPage() {
   const logout = useLogout();
   const form = useForm({
     initialValues: { source_url: '' },
-    validate: { source_url: (value) => isWHOIndicatorPage(value) ? null : 'Enter a canonical HTTPS WHO indicator page URL.' },
+    validate: { source_url: (value) => isSupportedIndicatorPage(value) ? null : 'Enter a WHO indicator page or choose a supported World Bank indicator.' },
   });
 
   if (session.isPending) return <Container size="md" className="page-section"><QueryLoading label="Checking owner authorization…" /></Container>;
@@ -68,7 +72,7 @@ export function AdminPage() {
 
   return <Container size="xl" className="page-section"><Stack gap="xl">
     <Group justify="space-between" align="end"><div><Text className="editorial-kicker">Admin</Text><Title className="display-title">Import carefully, preserve every release.</Title></div><Group><Button leftSection={<LogOut size={16} aria-hidden />} variant="subtle" color="dark" loading={logout.isPending} onClick={logoutNow}>Log out</Button><Button leftSection={<RefreshCw size={16} aria-hidden />} variant="light" color="dark" loading={refresh.isPending} onClick={refreshNow}>Refresh datasets</Button></Group></Group>
-    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg"><Card withBorder padding="lg"><form onSubmit={submitPreview}><Stack><div><Title order={2} size="h3">Preview WHO import</Title><Text size="sm" c="dimmed">The importer accepts canonical WHO indicator pages only, then discovers the approved download source under strict limits.</Text></div><TextInput label="WHO indicator page" placeholder="https://data.who.int/indicators/i/.../..." required {...form.getInputProps('source_url')} /><Button type="submit" leftSection={<Upload size={16} aria-hidden />} loading={previewRequest.isPending}>Create staged preview</Button></Stack></form></Card><Card withBorder padding="lg"><Stack><Title order={2} size="h3">Refresh policy</Title><List size="sm" spacing="xs"><List.Item>Daily refresh covers every active dataset, including confirmed generic WHO imports.</List.Item><List.Item>Daily refresh begins at 02:15 UTC with a PostgreSQL advisory lock.</List.Item><List.Item>A failed dataset keeps its last known-good release in the next snapshot.</List.Item><List.Item>Unchanged checksums do not create a new snapshot.</List.Item><List.Item>Preview artifacts expire after 24 hours if not confirmed.</List.Item></List></Stack></Card></SimpleGrid>
+    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg"><Card withBorder padding="lg"><form onSubmit={submitPreview}><Stack><div><Title order={2} size="h3">Preview source import</Title><Text size="sm" c="dimmed">Choose a World Bank indicator below or paste a WHO indicator page. Review the preview before publishing.</Text></div><Select label="World Bank: people and prosperity" placeholder="Choose an indicator" data={wdiIndicators} value={wdiIndicators.some((item) => item.value === form.values.source_url) ? form.values.source_url : null} onChange={(value) => { if (value) form.setFieldValue('source_url', value); }} /><TextInput label="Indicator source page" placeholder="https://data.who.int/indicators/i/.../..." required {...form.getInputProps('source_url')} /><Button type="submit" leftSection={<Upload size={16} aria-hidden />} loading={previewRequest.isPending}>Create staged preview</Button></Stack></form></Card><Card withBorder padding="lg"><Stack><Title order={2} size="h3">Refresh policy</Title><List size="sm" spacing="xs"><List.Item>Daily refresh covers every active dataset, including confirmed WHO and World Bank imports.</List.Item><List.Item>Daily refresh begins at 02:15 UTC with a PostgreSQL advisory lock.</List.Item><List.Item>A failed dataset keeps its last known-good release in the next snapshot.</List.Item><List.Item>Unchanged checksums do not create a new snapshot.</List.Item><List.Item>Preview artifacts expire after 24 hours if not confirmed.</List.Item></List></Stack></Card></SimpleGrid>
     {previewRequest.isError && <QueryError error={previewRequest.error} title="The import preview could not be started." />}
     {preview.isError && <QueryError error={preview.error} title="The staged import preview could not be refreshed." />}
     {preview.data && <ImportPreviewCard onConfirm={confirmPreview} confirming={confirm.isPending} preview={preview.data} />}

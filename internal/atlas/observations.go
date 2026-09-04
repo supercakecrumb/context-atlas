@@ -118,7 +118,7 @@ SELECT observation.series_id, observation.release_id, source.source_code, source
        reference.code IS NOT NULL, COALESCE(reference.is_leaf, false), reference.iso_alpha2, reference.iso_alpha3,
        observation.year, observation.raw_value, observation.display_value,
        observation.numeric_value, observation.lower_bound, observation.upper_bound,
-       observation.value_status, observation.publish_state, observation.source_row_key
+       observation.value_status, observation.publish_state, observation.source_row_key, source.source_system, observation.source_note, observation.source_status
 ` + observationFilterFrom + `
 ORDER BY observation.year, source.name, source.source_code, observation.series_id, observation.id
 LIMIT NULLIF($7::bigint, 0) OFFSET $8::bigint
@@ -214,6 +214,7 @@ func (s *Service) Observations(ctx context.Context, query api.ObservationQuery) 
 type observationRowScanner interface{ Scan(...any) error }
 
 func scanObservation(row observationRowScanner) (api.Observation, error) {
+	var sourceSystem, sourceNote, sourceStatus string
 	var (
 		seriesID, releaseID                  int64
 		sourceCode, name, kind               string
@@ -227,7 +228,7 @@ func scanObservation(row observationRowScanner) (api.Observation, error) {
 	if err := row.Scan(
 		&seriesID, &releaseID, &sourceCode, &name, &kind, &m49, &mapped, &leaf, &iso2, &iso3,
 		&year, &rawValue, &displayValue, &numericValue, &lowerBound, &upperBound,
-		&valueStatus, &publishState, &rowKey,
+		&valueStatus, &publishState, &rowKey, &sourceSystem, &sourceNote, &sourceStatus,
 	); err != nil {
 		return api.Observation{}, err
 	}
@@ -246,11 +247,11 @@ func scanObservation(row observationRowScanner) (api.Observation, error) {
 	return api.Observation{
 		SeriesID: strconv.FormatInt(seriesID, 10), ReleaseID: strconv.FormatInt(releaseID, 10),
 		SourceGeography: api.Geography{
-			SourceCode: sourceCode, Name: name, Kind: kind,
+			SourceSystem: sourceSystem, SourceCode: sourceCode, Name: name, Kind: kind,
 			M49: textValue(m49), ISO2: textValue(iso2), ISO3: textValue(iso3),
 			Mapped: mapped, Leaf: leaf,
 		},
-		Year: int(year), RawValue: rawValue, DisplayValue: displayValue, NumericValue: numeric,
+		SourceNote: sourceNote, SourceStatus: sourceStatus, Year: int(year), RawValue: rawValue, DisplayValue: displayValue, NumericValue: numeric,
 		LowerBound: lower, UpperBound: upper, Status: valueStatus, PublishState: publishState, SourceRowKey: rowKey,
 	}, nil
 }
@@ -337,7 +338,7 @@ var observationCSVHeader = [...]string{
 	"snapshot_id", "snapshot_created_at", "m49_reference_release", "release_id", "release_dataset_id", "release_sha256",
 	"release_source_url", "release_accessed_at", "release_citation", "release_parser_version", "series_id",
 	"source_code", "source_name", "source_kind", "canonical_m49", "mapped", "leaf", "year", "raw_value",
-	"display_value", "numeric_value", "lower_bound", "upper_bound", "value_status", "publish_state", "source_row_key",
+	"display_value", "numeric_value", "lower_bound", "upper_bound", "value_status", "publish_state", "source_row_key", "source_system", "source_note", "source_status",
 }
 
 func observationCSVRecord(snapshot resolvedSnapshot, release api.DatasetReleaseRef, observation api.Observation) []string {
@@ -352,7 +353,7 @@ func observationCSVRecord(snapshot resolvedSnapshot, release api.DatasetReleaseR
 		strconv.Itoa(observation.Year), csvCell(observation.RawValue), csvCell(observation.DisplayValue),
 		formatObservationFloat(observation.NumericValue), formatObservationFloat(observation.LowerBound),
 		formatObservationFloat(observation.UpperBound), csvCell(observation.Status), csvCell(observation.PublishState),
-		csvCell(observation.SourceRowKey),
+		csvCell(observation.SourceRowKey), csvCell(observation.SourceGeography.SourceSystem), csvCell(observation.SourceNote), csvCell(observation.SourceStatus),
 	}
 }
 

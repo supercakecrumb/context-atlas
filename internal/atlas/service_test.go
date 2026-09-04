@@ -119,7 +119,7 @@ func TestConfirmPreviewPublishesSnapshotAndClearsStaging(t *testing.T) {
 	var state string
 	var staged []byte
 	var releaseID int64
-	if err := service.pool.QueryRow(ctx, `SELECT state, staged_raw_csv, release_id FROM import_job WHERE id = $1`, job.ID).Scan(&state, &staged, &releaseID); err != nil {
+	if err := service.pool.QueryRow(ctx, `SELECT state, staged_raw_artifact, release_id FROM import_job WHERE id = $1`, job.ID).Scan(&state, &staged, &releaseID); err != nil {
 		t.Fatal(err)
 	}
 	if state != "confirmed" || staged != nil {
@@ -163,7 +163,7 @@ func TestTerminalJobsClearStagedCSV(t *testing.T) {
 				t.Fatal(err)
 			}
 			var cleared bool
-			if err := service.pool.QueryRow(ctx, `SELECT staged_raw_csv IS NULL FROM import_job WHERE id = $1`, job.ID).Scan(&cleared); err != nil {
+			if err := service.pool.QueryRow(ctx, `SELECT staged_raw_artifact IS NULL FROM import_job WHERE id = $1`, job.ID).Scan(&cleared); err != nil {
 				t.Fatal(err)
 			}
 			if !cleared {
@@ -185,7 +185,7 @@ func TestFinishRefreshPublishesChangedM49WithUnchangedWHOReleases(t *testing.T) 
 	var releaseID int64
 	if err := service.pool.QueryRow(ctx, `
 		INSERT INTO dataset_release (
-			dataset_id, source_url, citation, accessed_at, raw_csv, sha256, response_metadata, csv_headers,
+			dataset_id, source_url, citation, accessed_at, raw_artifact, sha256, response_metadata, source_fields,
 			schema_fingerprint, parser_version, source_row_count, imported_row_count,
 			duplicate_row_count, rejected_row_count, diagnostics
 		) VALUES ($1, $2, 'fixture', now(), $3, $4, '{}'::jsonb, '[]'::jsonb, $5, 'fixture', 0, 0, 0, 0, '{}'::jsonb)
@@ -485,7 +485,7 @@ func insertFixtureRelease(t *testing.T, service *Service, ctx context.Context, d
 	var releaseID int64
 	err := service.pool.QueryRow(ctx, `
 		INSERT INTO dataset_release (
-			dataset_id, source_url, citation, accessed_at, raw_csv, sha256, response_metadata, csv_headers,
+			dataset_id, source_url, citation, accessed_at, raw_artifact, sha256, response_metadata, source_fields,
 			schema_fingerprint, parser_version, source_row_count, imported_row_count,
 			duplicate_row_count, rejected_row_count, diagnostics
 		) VALUES ($1, $2, 'fixture', now(), $3, $4, '{}'::jsonb, '[]'::jsonb, $5, 'fixture', 0, 0, 0, 0, '{}'::jsonb)

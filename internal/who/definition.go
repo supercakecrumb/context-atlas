@@ -21,6 +21,9 @@ const (
 // DatasetDefinition is an explicit semantic mapping for a curated MVP dataset.
 // Generic imports do not need one, but curated imports must match it exactly.
 type DatasetDefinition struct {
+	// Empty source preserves the serialized definitions of existing WHO releases.
+	SourceSystem  string   `json:"source_system,omitempty"`
+	Description   string   `json:"description,omitempty"`
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`
 	PageURL       string   `json:"page_url"`
@@ -32,6 +35,13 @@ type DatasetDefinition struct {
 	ValueKind     string   `json:"value_kind"`
 	Dimensions    []string `json:"dimensions"`
 	Capabilities  []string `json:"capabilities"`
+}
+
+func (definition DatasetDefinition) Source() string {
+	if definition.SourceSystem == "" {
+		return "WHO"
+	}
+	return definition.SourceSystem
 }
 
 var curatedDefinitions = []DatasetDefinition{

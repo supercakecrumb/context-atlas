@@ -6,5 +6,5 @@ import "embed"
 // FS is intentionally rooted at this package so the executable never relies on
 // a working-directory-relative migration path.
 //
-//go:embed 000001_init.sql
+//go:embed *.sql
 var FS embed.FS

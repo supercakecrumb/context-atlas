@@ -14,29 +14,30 @@ import (
 
 	"github.com/supercakecrumb/context-atlas/internal/api"
 	"github.com/supercakecrumb/context-atlas/internal/who"
+	"github.com/supercakecrumb/context-atlas/internal/worldbank"
 )
 
 const jobColumns = `
 	id, dataset_id, release_id, requested_by, import_kind, state, source_url,
-	discovered_url, staged_raw_csv, preview, error_message, expires_at,
+	discovered_url, staged_raw_artifact, preview, error_message, expires_at,
 	created_at, started_at, finished_at`
 
 type job struct {
-	ID            int64
-	DatasetID     *string
-	ReleaseID     *int64
-	RequestedBy   string
-	ImportKind    string
-	State         string
-	SourceURL     string
-	DiscoveredURL *string
-	StagedRawCSV  []byte
-	Preview       []byte
-	ErrorMessage  *string
-	ExpiresAt     *time.Time
-	CreatedAt     time.Time
-	StartedAt     *time.Time
-	FinishedAt    *time.Time
+	ID                int64
+	DatasetID         *string
+	ReleaseID         *int64
+	RequestedBy       string
+	ImportKind        string
+	State             string
+	SourceURL         string
+	DiscoveredURL     *string
+	StagedRawArtifact []byte
+	Preview           []byte
+	ErrorMessage      *string
+	ExpiresAt         *time.Time
+	CreatedAt         time.Time
+	StartedAt         *time.Time
+	FinishedAt        *time.Time
 }
 
 type previewRecord struct {
@@ -62,14 +63,16 @@ type previewSummary struct {
 }
 
 type artifactMetadata struct {
-	PageURL       string `json:"page_url"`
-	PageETag      string `json:"page_etag,omitempty"`
-	PageModified  string `json:"page_modified,omitempty"`
-	DownloadURL   string `json:"download_url"`
-	ETag          string `json:"etag,omitempty"`
-	LastModified  string `json:"last_modified,omitempty"`
-	ContentType   string `json:"content_type,omitempty"`
-	ContentLength int64  `json:"content_length,omitempty"`
+	PageURL       string                   `json:"page_url"`
+	PageETag      string                   `json:"page_etag,omitempty"`
+	PageModified  string                   `json:"page_modified,omitempty"`
+	DownloadURL   string                   `json:"download_url"`
+	ETag          string                   `json:"etag,omitempty"`
+	LastModified  string                   `json:"last_modified,omitempty"`
+	ContentType   string                   `json:"content_type,omitempty"`
+	ContentLength int64                    `json:"content_length,omitempty"`
+	WorldBank     *worldbank.Metadata      `json:"world_bank,omitempty"`
+	Files         []worldbank.ResponseFile `json:"files,omitempty"`
 }
 
 func scanJob(row pgx.Row) (job, error) {
@@ -77,7 +80,7 @@ func scanJob(row pgx.Row) (job, error) {
 	err := row.Scan(
 		&value.ID, &value.DatasetID, &value.ReleaseID, &value.RequestedBy,
 		&value.ImportKind, &value.State, &value.SourceURL, &value.DiscoveredURL,
-		&value.StagedRawCSV, &value.Preview, &value.ErrorMessage, &value.ExpiresAt,
+		&value.StagedRawArtifact, &value.Preview, &value.ErrorMessage, &value.ExpiresAt,
 		&value.CreatedAt, &value.StartedAt, &value.FinishedAt,
 	)
 	return value, err
@@ -136,7 +139,7 @@ func (s *Service) stageJob(ctx context.Context, id int64, state, discoveredURL s
 	_, err := s.pool.Exec(ctx, `
 		UPDATE import_job
 		SET state = $2, discovered_url = NULLIF($3, ''),
-			staged_raw_csv = CASE WHEN $2 IN ('confirmed', 'expired', 'succeeded', 'unchanged', 'failed', 'interrupted') THEN NULL ELSE $4::bytea END,
+			staged_raw_artifact = CASE WHEN $2 IN ('confirmed', 'expired', 'succeeded', 'unchanged', 'failed', 'interrupted') THEN NULL ELSE $4::bytea END,
 			preview = COALESCE($5::jsonb, preview), error_message = $6, started_at = COALESCE(started_at, now()),
 			finished_at = CASE WHEN $2 = 'failed' THEN now() ELSE NULL END
 		WHERE id = $1`, id, state, discoveredURL, raw, preview, failure)
@@ -148,7 +151,7 @@ func finishJobTx(ctx context.Context, tx pgx.Tx, id int64, datasetID *string, re
 		UPDATE import_job
 		SET dataset_id = COALESCE($2, dataset_id), release_id = COALESCE($3, release_id),
 			state = $4, error_message = $5, started_at = COALESCE(started_at, now()),
-			staged_raw_csv = CASE WHEN $4 IN ('confirmed', 'expired', 'succeeded', 'unchanged', 'failed', 'interrupted') THEN NULL ELSE staged_raw_csv END,
+			staged_raw_artifact = CASE WHEN $4 IN ('confirmed', 'expired', 'succeeded', 'unchanged', 'failed', 'interrupted') THEN NULL ELSE staged_raw_artifact END,
 			finished_at = now()
 		WHERE id = $1`, id, datasetID, releaseID, state, failure)
 	return err
@@ -159,7 +162,7 @@ func (s *Service) finishJob(ctx context.Context, id int64, datasetID *string, re
 		UPDATE import_job
 		SET dataset_id = COALESCE($2, dataset_id), release_id = COALESCE($3, release_id),
 			state = $4, error_message = $5, started_at = COALESCE(started_at, now()),
-			staged_raw_csv = CASE WHEN $4 IN ('confirmed', 'expired', 'succeeded', 'unchanged', 'failed', 'interrupted') THEN NULL ELSE staged_raw_csv END,
+			staged_raw_artifact = CASE WHEN $4 IN ('confirmed', 'expired', 'succeeded', 'unchanged', 'failed', 'interrupted') THEN NULL ELSE staged_raw_artifact END,
 			finished_at = now()
 		WHERE id = $1`, id, datasetID, releaseID, state, failure)
 	return err
@@ -169,7 +172,7 @@ func (s *Service) finishJob(ctx context.Context, id int64, datasetID *string, re
 func (s *Service) ExpirePreviews(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE import_job
-		SET state = 'expired', staged_raw_csv = NULL, finished_at = now()
+		SET state = 'expired', staged_raw_artifact = NULL, finished_at = now()
 		WHERE state = 'preview_ready'
 		  AND expires_at IS NOT NULL
 		  AND expires_at <= $1`, s.now().UTC())
@@ -193,6 +196,11 @@ func failureMessage(err error) *string {
 // CreatePreview persists a queued job and starts bounded background fetching.
 func (s *Service) CreatePreview(ctx context.Context, rawURL string) (api.ImportPreview, error) {
 	page, err := who.ValidateIndicatorPageURL(rawURL)
+	wdi, isWDI := worldbank.DefinitionForURL(rawURL)
+	if isWDI {
+		page = who.IndicatorPage{URL: wdi.PageURL}
+		err = nil
+	}
 	if err != nil {
 		return api.ImportPreview{}, fmt.Errorf("%w: %v", api.ErrConflict, err)
 	}
@@ -201,7 +209,10 @@ func (s *Service) CreatePreview(ctx context.Context, rawURL string) (api.ImportP
 	}
 	var definition *who.DatasetDefinition
 	var datasetID *string
-	if curated, ok := who.DefinitionForIndicator(page); ok {
+	if isWDI {
+		definition = &wdi
+		datasetID = &wdi.ID
+	} else if curated, ok := who.DefinitionForIndicator(page); ok {
 		definition = &curated
 		datasetID = &curated.ID
 	}
@@ -232,42 +243,18 @@ func (s *Service) fetchPreview(ctx context.Context, jobID int64, page who.Indica
 		s.logger.Error("mark preview running", "job_id", jobID, "error", err)
 		return
 	}
-	fetched, err := s.fetcher.FetchFromIndicatorPage(ctx, page.URL)
-	if err != nil {
-		if updateErr := s.finishJob(ctx, jobID, nil, nil, "failed", failureMessage(err)); updateErr != nil {
-			s.logger.Error("record preview fetch failure", "job_id", jobID, "error", updateErr)
-		}
-		return
-	}
-	preview, err := who.BuildPreview(fetched.Artifact.Bytes, who.PreviewOptions{
-		Dataset: definition, SourceURL: fetched.Artifact.URL, AccessedAt: fetched.Artifact.AccessedAt,
-		ResolveM49: s.resolveM49,
-	})
-	if definition == nil {
-		generic := genericDefinition(page, preview)
-		definition = &generic
-		preview.Dataset = definition
-	}
-	record := previewRecord{
-		Version: 1, Dataset: definition, Summary: summarizePreview(preview),
-		Artifact: artifactMetadata{
-			PageURL: page.URL, PageETag: fetched.Discovery.ETag, PageModified: fetched.Discovery.LastModified,
-			DownloadURL: fetched.Artifact.URL, ETag: fetched.Artifact.ETag,
-			LastModified: fetched.Artifact.LastModified, ContentType: fetched.Artifact.ContentType,
-			ContentLength: fetched.Artifact.ContentLength,
-		},
-	}
+	record, _, raw, err := s.fetchSource(ctx, page.URL, definition)
 	encoded, marshalErr := json.Marshal(record)
 	if marshalErr != nil {
 		err = fmt.Errorf("encode import preview: %w", marshalErr)
 	}
 	if err != nil {
-		if updateErr := s.stageJob(ctx, jobID, "failed", fetched.Artifact.URL, fetched.Artifact.Bytes, encoded, failureMessage(err)); updateErr != nil {
+		if updateErr := s.stageJob(ctx, jobID, "failed", record.Artifact.DownloadURL, raw, encoded, failureMessage(err)); updateErr != nil {
 			s.logger.Error("record preview parse failure", "job_id", jobID, "error", updateErr)
 		}
 		return
 	}
-	if err := s.stageJob(ctx, jobID, "preview_ready", fetched.Artifact.URL, fetched.Artifact.Bytes, encoded, nil); err != nil {
+	if err := s.stageJob(ctx, jobID, "preview_ready", record.Artifact.DownloadURL, raw, encoded, nil); err != nil {
 		s.logger.Error("persist import preview", "job_id", jobID, "error", err)
 	}
 }

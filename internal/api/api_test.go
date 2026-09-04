@@ -315,6 +315,7 @@ func TestAdminRoutesDenyByDefaultAndValidateWHOURL(t *testing.T) {
 		t.Fatalf("bad URL status = %d, body = %s", bad.Code, bad.Body.String())
 	}
 	for _, goodURL := range []string{
+		"https://data.worldbank.org/indicator/SI.POV.GINI",
 		"https://data.who.int/indicators/i/16BBF41",
 		"https://data.who.int/indicators/i/F08B4FD/16BBF41",
 	} {
@@ -429,10 +430,11 @@ func TestETagMatchesWhitespaceAndWeakTags(t *testing.T) {
 
 func TestWHOIndicatorURLAllowsOnlyCanonicalPage(t *testing.T) {
 	for _, raw := range []string{
+		"https://data.worldbank.org/indicator/SI.POV.GINI",
 		"https://data.who.int/indicators/i/16BBF41",
 		"https://data.who.int/indicators/i/F08B4FD/16BBF41",
 	} {
-		if err := validateWHOIndicatorURL(raw); err != nil {
+		if err := validateIndicatorURL(raw); err != nil {
 			t.Fatalf("canonical URL rejected: %s: %v", raw, err)
 		}
 	}
@@ -443,7 +445,7 @@ func TestWHOIndicatorURLAllowsOnlyCanonicalPage(t *testing.T) {
 		"https://data.who.int/indicators/i/a/b/extra",
 		"https://data.who.int/indicators/i/a/%2e%2e",
 	} {
-		if err := validateWHOIndicatorURL(raw); err == nil {
+		if err := validateIndicatorURL(raw); err == nil {
 			t.Errorf("unsafe/non-canonical URL accepted: %s", raw)
 		}
 	}

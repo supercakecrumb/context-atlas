@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { renderApp } from '../test/render';
 import { server } from '../test/server';
-import { isWHOIndicatorPage } from './AdminPage';
+import { isWHOIndicatorPage, isSupportedIndicatorPage } from './AdminPage';
 
 const preview = {
   conflicting_duplicates: 0,
@@ -23,7 +23,12 @@ const preview = {
   warnings: [],
 };
 
-describe('WHO indicator page validation', () => {
+describe('source indicator page validation', () => {
+  it('accepts only reviewed World Bank pages', () => {
+    expect(isSupportedIndicatorPage('https://data.worldbank.org/indicator/SI.POV.GINI')).toBe(true);
+    expect(isSupportedIndicatorPage('https://data.worldbank.org/indicator/OTHER')).toBe(false);
+    expect(isSupportedIndicatorPage('https://data.worldbank.org/indicator/SI.POV.GINI?redirect=http://localhost')).toBe(false);
+  });
   it.each([
     'https://data.who.int/indicators/i/16BBF41',
     'https://data.who.int/indicators/i/F08B4FD/16BBF41',

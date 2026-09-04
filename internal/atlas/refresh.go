@@ -286,28 +286,13 @@ func (s *Service) fetchRefreshCandidate(ctx context.Context, definition who.Data
 	if err != nil {
 		return refreshCandidate{}, false, err
 	}
-	fetched, err := s.fetcher.FetchFromIndicatorPage(ctx, definition.PageURL)
-	if err != nil {
-		_ = s.finishJob(ctx, job.ID, &definition.ID, nil, "failed", failureMessage(err))
-		return refreshCandidate{}, false, err
-	}
-	preview, err := who.BuildPreview(fetched.Artifact.Bytes, who.PreviewOptions{
-		Dataset: &definition, SourceURL: fetched.Artifact.URL, AccessedAt: fetched.Artifact.AccessedAt, ResolveM49: s.resolveM49,
-	})
-	record := previewRecord{
-		Version: 1, Dataset: &definition, Summary: summarizePreview(preview),
-		Artifact: artifactMetadata{
-			PageURL: definition.PageURL, PageETag: fetched.Discovery.ETag, PageModified: fetched.Discovery.LastModified,
-			DownloadURL: fetched.Artifact.URL, ETag: fetched.Artifact.ETag, LastModified: fetched.Artifact.LastModified,
-			ContentType: fetched.Artifact.ContentType, ContentLength: fetched.Artifact.ContentLength,
-		},
-	}
+	record, preview, raw, err := s.fetchSource(ctx, definition.PageURL, &definition)
 	encoded, marshalErr := json.Marshal(record)
 	if marshalErr != nil {
 		err = fmt.Errorf("encode refresh preview: %w", marshalErr)
 	}
 	if err != nil {
-		_ = s.stageJob(ctx, job.ID, "failed", fetched.Artifact.URL, fetched.Artifact.Bytes, encoded, failureMessage(err))
+		_ = s.stageJob(ctx, job.ID, "failed", record.Artifact.DownloadURL, raw, encoded, failureMessage(err))
 		return refreshCandidate{}, false, err
 	}
 	if existingID, exists, err := s.existingRelease(ctx, definition.ID, preview.SHA256); err != nil {
@@ -319,7 +304,7 @@ func (s *Service) fetchRefreshCandidate(ctx context.Context, definition who.Data
 			_ = s.finishJob(ctx, job.ID, &definition.ID, nil, "failed", failureMessage(err))
 			return refreshCandidate{}, false, err
 		}
-		if err := s.stageJob(ctx, job.ID, "running", fetched.Artifact.URL, fetched.Artifact.Bytes, encoded, nil); err != nil {
+		if err := s.stageJob(ctx, job.ID, "running", record.Artifact.DownloadURL, raw, encoded, nil); err != nil {
 			_ = s.finishJob(ctx, job.ID, &definition.ID, nil, "failed", failureMessage(err))
 			return refreshCandidate{}, false, err
 		}
@@ -330,15 +315,15 @@ func (s *Service) fetchRefreshCandidate(ctx context.Context, definition who.Data
 			return refreshCandidate{}, false, nil
 		}
 		return refreshCandidate{
-			job: job, definition: definition, record: record, preview: preview, raw: fetched.Artifact.Bytes,
+			job: job, definition: definition, record: record, preview: preview, raw: raw,
 			reuseReleaseID: &existingID,
 		}, true, nil
 	}
-	if err := s.stageJob(ctx, job.ID, "running", fetched.Artifact.URL, fetched.Artifact.Bytes, encoded, nil); err != nil {
+	if err := s.stageJob(ctx, job.ID, "running", record.Artifact.DownloadURL, raw, encoded, nil); err != nil {
 		_ = s.finishJob(ctx, job.ID, &definition.ID, nil, "failed", failureMessage(err))
 		return refreshCandidate{}, false, err
 	}
-	return refreshCandidate{job: job, definition: definition, record: record, preview: preview, raw: fetched.Artifact.Bytes}, true, nil
+	return refreshCandidate{job: job, definition: definition, record: record, preview: preview, raw: raw}, true, nil
 }
 
 func (s *Service) existingRelease(ctx context.Context, datasetID, checksum string) (int64, bool, error) {
@@ -406,7 +391,7 @@ func (s *Service) MarkInterruptedFailed(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE import_job
 		SET state = 'interrupted', error_message = 'interrupted by process restart',
-			staged_raw_csv = NULL, finished_at = now()
+			staged_raw_artifact = NULL, finished_at = now()
 		WHERE state IN ('queued', 'running')`)
 	if err != nil {
 		return fmt.Errorf("mark interrupted import jobs: %w", err)

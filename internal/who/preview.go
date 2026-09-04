@@ -209,6 +209,8 @@ type Value struct {
 // Observation is one valid source row after normalization. CanonicalM49 is
 // empty only when the reference resolver could not map a retained source row.
 type Observation struct {
+	SourceNote   string
+	SourceStatus string
 	Row          int
 	SeriesHash   string
 	SourceRowKey string

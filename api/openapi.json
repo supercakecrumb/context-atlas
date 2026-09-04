@@ -246,11 +246,20 @@
           "id": {
             "type": "string"
           },
+          "indicator_code": {
+            "type": "string"
+          },
+          "indicator_id": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
           "release": {
             "$ref": "#/components/schemas/DatasetReleaseRef"
+          },
+          "source_system": {
+            "type": "string"
           },
           "source_url": {
             "format": "uri",
@@ -310,6 +319,9 @@
             "format": "date-time",
             "type": "string"
           },
+          "artifact_content_type": {
+            "type": "string"
+          },
           "citation": {
             "type": "string"
           },
@@ -319,10 +331,25 @@
           "id": {
             "type": "string"
           },
+          "last_updated": {
+            "type": "string"
+          },
+          "license_url": {
+            "type": "string"
+          },
           "parser_version": {
             "type": "string"
           },
+          "producer": {
+            "type": "string"
+          },
           "sha256": {
+            "type": "string"
+          },
+          "source_note": {
+            "type": "string"
+          },
+          "source_system": {
             "type": "string"
           },
           "source_url": {
@@ -578,6 +605,9 @@
             "type": "string"
           },
           "source_code": {
+            "type": "string"
+          },
+          "source_system": {
             "type": "string"
           }
         },
@@ -1052,7 +1082,13 @@
           "source_geography": {
             "$ref": "#/components/schemas/Geography"
           },
+          "source_note": {
+            "type": "string"
+          },
           "source_row_key": {
+            "type": "string"
+          },
+          "source_status": {
             "type": "string"
           },
           "status": {
@@ -1322,7 +1358,7 @@
     }
   },
   "info": {
-    "description": "Public exact-year WHO data exploration and owner-only import administration.",
+    "description": "Public exact-year WHO and World Bank data exploration and owner-only import administration.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -1475,7 +1511,7 @@
             "ownerSession": []
           }
         ],
-        "summary": "Stage and inspect a WHO indicator import"
+        "summary": "Stage and inspect a supported WHO or World Bank indicator import"
       }
     },
     "/api/v1/admin/import-previews/{preview_id}": {
@@ -1805,7 +1841,7 @@
             "ownerSession": []
           }
         ],
-        "summary": "Start the owner-requested WHO catalog refresh"
+        "summary": "Start the owner-requested catalog refresh"
       }
     },
     "/api/v1/admin/session": {
@@ -2355,7 +2391,7 @@
           }
         },
         "security": [],
-        "summary": "Search WHO source and canonical M49 geographies"
+        "summary": "Search original source and canonical M49 geographies"
       }
     },
     "/api/v1/groups": {
