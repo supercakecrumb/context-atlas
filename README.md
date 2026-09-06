@@ -54,15 +54,17 @@ Earth public-domain data; UN M49 supplies the reference grouping hierarchy.
 
 GitHub Actions checks Go, PostgreSQL integration, frontend tests, browser tests and API contracts.
 Pushing a `vX.Y.Z` tag runs those checks again, publishes a Linux amd64 image to
-`ghcr.io/supercakecrumb/context-atlas:X.Y.Z`, creates a GitHub release, and deploys that exact
-image through Dokploy. The workflow waits for the new deployment and checks the public health endpoint.
+`ghcr.io/supercakecrumb/context-atlas:X.Y.Z`, and creates a GitHub release. Deployment uses
+`scripts/deploy.sh X.Y.Z` from the operator's machine, keeping the Dokploy API credential out
+of GitHub. The script selects that exact image, waits for the new deployment and checks the public health endpoint.
 
 The production host is `https://atlas.aurorass.art`. The container runs as a non-root user,
 applies embedded migrations at startup, and serves the API and frontend on port 8080.
 PostgreSQL stores source releases and snapshots. Configuration is documented in `.env.example`;
 production credentials belong in OpenBao and Dokploy, never in Git.
 
-For another Dokploy installation, configure repository secrets `DOKPLOY_URL`,
-`DOKPLOY_API_TOKEN`, `DOKPLOY_APP_ID`, and variables `REQUIRE_ENV=DATABASE_URL` and
-`HEALTH_URL=https://your-host/health`. Make the GHCR package public before the first deployment.
+For another Dokploy installation, supply `DOKPLOY_URL`, `DOKPLOY_API_TOKEN`, `DOKPLOY_APP_ID`,
+and `HEALTH_URL=https://your-host/health` in the operator's environment. The script checks
+`DATABASE_URL` is configured; `REQUIRE_ENV` can name additional required variables.
+Make the GHCR package public before the first deployment.
 The MIT license covers application code; source datasets retain their own attribution and terms.
