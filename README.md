@@ -1,5 +1,10 @@
 # Context Atlas
 
+[![CI](https://github.com/supercakecrumb/context-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/supercakecrumb/context-atlas/actions/workflows/ci.yml)
+[![Release](https://github.com/supercakecrumb/context-atlas/actions/workflows/release.yml/badge.svg)](https://github.com/supercakecrumb/context-atlas/actions/workflows/release.yml)
+
+[Public atlas](https://atlas.aurorass.art) · [MIT license](LICENSE) · [Container images](https://github.com/supercakecrumb/context-atlas/pkgs/container/context-atlas)
+
 Context Atlas is an English-only public data atlas for exploring WHO and World Bank indicators across countries,
 areas, years, maps, and exact-year associations.
 
@@ -47,5 +52,17 @@ Earth public-domain data; UN M49 supplies the reference grouping hierarchy.
 
 ## Deployment
 
-Deployment is intentionally outside the v0.1.0 website-build goal. The planned public host is
-`https://atlas.aurorass.art`.
+GitHub Actions checks Go, PostgreSQL integration, frontend tests, browser tests and API contracts.
+Pushing a `vX.Y.Z` tag runs those checks again, publishes a Linux amd64 image to
+`ghcr.io/supercakecrumb/context-atlas:X.Y.Z`, creates a GitHub release, and deploys that exact
+image through Dokploy. The workflow waits for the new deployment and checks the public health endpoint.
+
+The production host is `https://atlas.aurorass.art`. The container runs as a non-root user,
+applies embedded migrations at startup, and serves the API and frontend on port 8080.
+PostgreSQL stores source releases and snapshots. Configuration is documented in `.env.example`;
+production credentials belong in OpenBao and Dokploy, never in Git.
+
+For another Dokploy installation, configure repository secrets `DOKPLOY_URL`,
+`DOKPLOY_API_TOKEN`, `DOKPLOY_APP_ID`, and variables `REQUIRE_ENV=DATABASE_URL` and
+`HEALTH_URL=https://your-host/health`. Make the GHCR package public before the first deployment.
+The MIT license covers application code; source datasets retain their own attribution and terms.

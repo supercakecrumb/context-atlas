@@ -13,7 +13,7 @@ modular monolith with PostgreSQL 18 and a React 19/Vite/Mantine frontend.
 - Public reads are anonymous. Import, confirmation, and manual refresh are owner-only Telegram flows.
 - World Bank imports accept only reviewed indicator URLs. Preserve original JSON responses, producer
   attribution, source notes and flags. Refresh new providers only after their first owner confirmation.
-- Deployment and production infrastructure are outside the current v0.1.0 website goal.
+- Production releases use tagged GHCR images and Dokploy; follow the deploy skill for platform changes.
 
 ## Repository shape
 
