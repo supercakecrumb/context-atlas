@@ -4,6 +4,10 @@ All notable changes to Context Atlas are documented here. The project follows Se
 
 
 
+## v0.2.1 - 2026-10-15
+### Security
+* Stop publishing production JavaScript source maps.
+
 ## v0.2.0 - 2026-09-06
 ### Added
 * Country portraits compare exact-year indicator values and published trends for two countries, with source details, location maps, and reproducible share links.
