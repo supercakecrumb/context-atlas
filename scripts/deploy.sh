@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
+# Deployment credentials must never appear in shell tracing.
+set +x
 # Deploy a published release. Keep the API token in the operator's environment.
 set -euo pipefail
 version="${1:-}"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Usage: scripts/deploy.sh X.Y.Z'; exit 2; }
 : "${DOKPLOY_URL:?required}" "${DOKPLOY_API_TOKEN:?required}" "${DOKPLOY_APP_ID:?required}" "${HEALTH_URL:?required}"
-api() { curl --fail --silent --show-error --max-time 30 -H "x-api-key: $DOKPLOY_API_TOKEN" -H 'Content-Type: application/json' "$@"; }
+api() { curl --fail --silent --show-error --max-time 30 -H @<(printf 'x-api-key: %s\n' "$DOKPLOY_API_TOKEN") -H 'Content-Type: application/json' "$@"; }
 image="ghcr.io/supercakecrumb/context-atlas:$version"
 app=$(api "$DOKPLOY_URL/api/application.one?applicationId=$DOKPLOY_APP_ID")
 for key in ${REQUIRE_ENV:-DATABASE_URL}; do
-  jq -e --arg key "$key" '(.env // "") | split("\n") | any(startswith($key + "=") and (split("=")[1:] | join("=") | length > 0))' <<< "$app" >/dev/null
+  printf '%s' "$app" | jq -e --arg key "$key" '(.env // "") | split("\n") | any(startswith($key + "=") and (split("=")[1:] | join("=") | length > 0))' >/dev/null
 done
 jq -nc --arg id "$DOKPLOY_APP_ID" --arg image "$image" '{applicationId:$id,dockerImage:$image,username:null,password:null,registryUrl:null}' \
   | api -X POST --data-binary @- "$DOKPLOY_URL/api/application.saveDockerProvider" >/dev/null
