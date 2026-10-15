@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/pressly/goose/v3 v3.27.2
-	github.com/supercakecrumb/msgr-authkit v0.1.0
+	github.com/supercakecrumb/msgr-authkit v0.1.1
 	github.com/supercakecrumb/snagbox v0.1.3
 	golang.org/x/net v0.58.0
 )
